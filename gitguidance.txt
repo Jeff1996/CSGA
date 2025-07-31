@@ -1,0 +1,7 @@
+操作	命令
+查看变更            git status
+添加所有变更	    git add -A
+提交更改	        git commit -m "描述"
+拉取远程更新	    git pull origin main
+推送到 GitHub	    git push origin main
+强制推送（慎用）    git push -f origin main
