@@ -1,0 +1,263 @@
+# ------------------------ 01 vit ------------------------
+# ------ 01 原生vit ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/vision_transformer/vit-base-p16_4xb64-mae_in1k.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29511 bash tools/dist_train.sh configs/vision_transformer/vit-base-p16_4xb64-mae_in1k.py 4
+测试：
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29511 bash tools/dist_test.sh configs/vision_transformer/vit-base-p16_4xb64-mae_in1k.py work_dirs/pretrained_in1k/01vit/vit-base-p16_pt-32xb128-mae_in1k_20220623-4c544545.pth 4
+
+# ------ 01 聚类稀疏全局vit ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/vision_transformer/vit-base-p16_debug_4xb64-mae_in1k.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29513 bash tools/dist_train.sh configs/vision_transformer/vit-base-p16_debug_4xb64-mae_in1k.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/vision_transformer/vit-base-p16_debug_4xb64-mae_in1k.py work_dirs/pretrained_in1k/01vit/vit-base-p16_pt-32xb128-mae_in1k_20220623-4c544545.pth
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29514 bash tools/dist_test.sh configs/vision_transformer/vit-base-p16_debug_4xb64-mae_in1k.py work_dirs/pretrained_in1k/01vit/vit-base-p16_pt-32xb128-mae_in1k_20220623-4c544545.pth 4
+
+
+# ------------------------ 02 setr ------------------------
+# ------ 02 原生setr ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/setr/setr_vit-large-p16_64xb64_in1k-384px.py
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py  configs/setr/setr_vit-large-p16_64xb64_in1k-384px.py work_dirs/pretrained_in1k/02setr/setr_vit_large_p16_384.pth
+
+# ------ 02 聚类稀疏全局setr ------
+训练：
+测试：
+
+
+# ------------------------ 03 segformer ------------------------
+# ------ 03 原生segformer ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/segformer/segformer_mit-b0_4xb128_in1k-512x512.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29531 bash tools/dist_train.sh configs/segformer/segformer_mit-b0_4xb128_in1k-512x512.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/segformer/segformer_mit-b0_4xb128_in1k-512x512.py work_dirs/pretrained_in1k/03segformer/mit_b0_mmlab.pth
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29532 bash tools/dist_test.sh configs/segformer/segformer_mit-b0_4xb128_in1k-512x512.py work_dirs/pretrained_in1k/03segformer/mit_b0.pth 4
+
+# ------ 03 聚类稀疏全局segformer ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/segformer/segformer_mit-b0_debug_4xb128_in1k-512x512.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29533 bash tools/dist_train.sh configs/segformer/segformer_mit-b0_debug_4xb128_in1k-512x512.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/segformer/segformer_mit-b0_debug_4xb128_in1k-512x512.py work_dirs/pretrained_in1k/03segformer/mit_b0_mmlab.pth
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29534 bash tools/dist_test.sh configs/segformer/segformer_mit-b0_debug_4xb128_in1k-512x512.py work_dirs/pretrained_in1k/03segformer/mit_b0.pth 4
+
+# ------ 03 聚类稀疏全局segformer 去掉聚类过程中的相对位置编码 ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/segformer/segformer_mit-b0_debug2_4xb128_in1k-224x224.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29535 bash tools/dist_train.sh configs/segformer/segformer_mit-b0_debug2_4xb128_in1k-224x224.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/segformer/segformer_mit-b0_debug2_4xb128_in1k-224x224.py work_dirs/pretrained_in1k/03segformer/mit_b0_mmlab.pth
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29536 bash tools/dist_test.sh configs/segformer/segformer_mit-b0_debug2_4xb128_in1k-224x224.py work_dirs/pretrained_in1k/03segformer/mit_b0.pth 4
+
+
+# ------------------------ 04 swin ------------------------
+# ------ 04 原生swin ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/swin_transformer/swin-tiny_4xb64_in1k.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29541 bash tools/dist_train.sh configs/swin_transformer/swin-tiny_4xb64_in1k.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/swin_transformer/swin-tiny_4xb64_in1k.py work_dirs/pretrained_in1k/04swin/swin_tiny_224_b16x64_300e_imagenet_20210616_090925-66df6be6.pth
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29542 bash tools/dist_test.sh configs/swin_transformer/swin-tiny_4xb64_in1k.py work_dirs/pretrained_in1k/04swin/swin_tiny_224_b16x64_300e_imagenet_20210616_090925-66df6be6.pth 4
+
+# ------ 04 聚类稀疏全局swin ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/swin_transformer/swin-tiny_debug_4xb64_in1k.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29543 bash tools/dist_train.sh configs/swin_transformer/swin-tiny_debug_4xb64_in1k.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/swin_transformer/swin-tiny_debug_4xb64_in1k.py 权重路径
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29544 bash tools/dist_test.sh configs/swin_transformer/swin-tiny_debug_4xb64_in1k.py 权重路径 4
+
+# ------ 04 聚类稀疏全局swin 去掉聚类过程中的相对位置编码 ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/swin_transformer/swin-tiny_debug2_4xb64_in1k.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29545 bash tools/dist_train.sh configs/swin_transformer/swin-tiny_debug2_4xb64_in1k.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/swin_transformer/swin-tiny_debug2_4xb64_in1k.py 权重路径
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29546 bash tools/dist_test.sh configs/swin_transformer/swin-tiny_debug2_4xb64_in1k.py 权重路径 4
+
+# ------ 04 ClusterFormer + Swin ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/swin_transformer/swin-tiny_cluster_4xb64_in1k.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29543 bash tools/dist_train.sh configs/swin_transformer/swin-tiny_cluster_4xb64_in1k.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/swin_transformer/swin-tiny_cluster_4xb64_in1k.py 权重路径
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29544 bash tools/dist_test.sh configs/swin_transformer/swin-tiny_cluster_4xb64_in1k.py 权重路径 4
+
+# ------ 04 Transformer-VQ + Swin ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/swin_transformer/swin-tiny_vq_4xb64_in1k.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29543 bash tools/dist_train.sh configs/swin_transformer/swin-tiny_vq_4xb64_in1k.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/swin_transformer/swin-tiny_vq_4xb64_in1k.py 权重路径
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29544 bash tools/dist_test.sh configs/swin_transformer/swin-tiny_vq_4xb64_in1k.py 权重路径 4
+
+# ------ 04 Swin 用于专利申请的版本 ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/swin_transformer/swin-tiny_debug_patent_4xb64_in1k.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29543 bash tools/dist_train.sh configs/swin_transformer/swin-tiny_debug_patent_4xb64_in1k.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/swin_transformer/swin-tiny_debug_patent_4xb64_in1k.py 权重路径
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29544 bash tools/dist_test.sh configs/swin_transformer/swin-tiny_debug_patent_4xb64_in1k.py 权重路径 4
+
+
+# ------------------------ 05 pvt ------------------------
+# ------ 05 原生pvt ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/pvt/pvt-t_4x64_in1k-224x224.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29551 bash tools/dist_train.sh configs/pvt/pvt-t_4x64_in1k-224x224.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/pvt/pvt-t_4x64_in1k-224x224.py work_dirs/pretrained_in1k/05pvt/pvt_tiny_mmpretrain.pth
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29552 bash tools/dist_test.sh 配置文件路径 权重路径 4
+
+# ------ 05 聚类稀疏全局pvt ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/pvt/pvt-t_debug_4x64_in1k-224x224.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29553 bash tools/dist_train.sh configs/pvt/pvt-t_debug_4x64_in1k-224x224.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/pvt/pvt-t_debug_4x64_in1k-224x224.py 权重路径
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29554 bash tools/dist_test.sh configs/pvt/pvt-t_debug_4x64_in1k-224x224.py 权重路径 4
+
+# ------ 05 聚类稀疏全局pvt 去掉聚类过程中的相对位置编码 ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/pvt/pvt-t_debug2_4x64_in1k-224x224.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29555 bash tools/dist_train.sh configs/pvt/pvt-t_debug2_4x64_in1k-224x224.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/pvt/pvt-t_debug2_4x64_in1k-224x224.py 权重路径
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29556 bash tools/dist_test.sh configs/pvt/pvt-t_debug2_4x64_in1k-224x224.py 权重路径 4
+
+
+# ------------------------ 06 nat ------------------------
+# ------ 06 原生nat ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/nat/nat-mini_4xb64_in1k-224x224.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29561 bash tools/dist_train.sh configs/nat/nat-mini_4xb64_in1k-224x224.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/nat/nat-mini_4xb64_in1k-224x224.py work_dirs/pretrained_in1k/06nat/nat_mini_mmpretrain.pth
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29562 bash tools/dist_test.sh configs/nat/nat-mini_4xb64_in1k-224x224.py work_dirs/pretrained_in1k/06nat/nat_mini_mmpretrain.pth 4
+
+# ------ 06 聚类稀疏全局nat ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/nat/nat-mini_debug_4xb64_in1k-224x224.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29563 bash tools/dist_train.sh configs/nat/nat-mini_debug_4xb64_in1k-224x224.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/nat/nat-mini_debug_4xb64_in1k-224x224.py work_dirs/pretrained_in1k/06nat/nat_mini_mmpretrain.pth
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29564 bash tools/dist_test.sh configs/nat/nat-mini_debug_4xb64_in1k-224x224.py work_dirs/pretrained_in1k/06nat/nat_mini_mmpretrain.pth 4
+
+# ------ 06 聚类稀疏全局nat 去掉聚类过程中的相对位置编码 ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/nat/nat-mini_debug2_4xb64_in1k-224x224.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29565 bash tools/dist_train.sh configs/nat/nat-mini_debug2_4xb64_in1k-224x224.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/nat/nat-mini_debug2_4xb64_in1k-224x224.py work_dirs/pretrained_in1k/06nat/nat_mini_mmpretrain.pth
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29566 bash tools/dist_test.sh configs/nat/nat-mini_debug2_4xb64_in1k-224x224.py work_dirs/pretrained_in1k/06nat/nat_mini_mmpretrain.pth 4
+
+
+# ------------------------ 07 twins-svt ------------------------
+# ------ 06 原生twins-svt ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/twins/twins-svt-small_4xb64_in1k.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29571 bash tools/dist_train.sh configs/twins/twins-svt-small_4xb64_in1k.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/twins/twins-svt-small_4xb64_in1k.py work_dirs/pretrained_in1k/07twins/twins-svt-small_3rdparty_8xb128_in1k_20220126-8fe5205b.pth
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29572 bash tools/dist_test.sh 配置文件路径 权重路径 4
+
+# ------ 06 聚类稀疏全局twins-svt ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/twins/twins-svt-small_debug_4xb64_in1k.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29573 bash tools/dist_train.sh configs/twins/twins-svt-small_debug_4xb64_in1k.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/twins/twins-svt-small_debug_4xb64_in1k.py work_dirs/pretrained_in1k/07twins/twins-svt-small_3rdparty_8xb128_in1k_20220126-8fe5205b.pth
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29574 bash tools/dist_test.sh 配置文件路径 权重路径 4
+
+# ------ 06 聚类稀疏全局twins-svt 去掉聚类过程中的相对位置编码 ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/twins/twins-svt-small_debug2_4xb64_in1k.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29575 bash tools/dist_train.sh configs/twins/twins-svt-small_debug2_4xb64_in1k.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/twins/twins-svt-small_debug2_4xb64_in1k.py 权重路径
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29576 bash tools/dist_test.sh configs/twins/twins-svt-small_debug2_4xb64_in1k.py 权重路径 4
+
+
+# ------------------------ 08 ClusterFormer ------------------------
+# ------ 08 原生ClusterFormer ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/cluster/cluster-tiny_4xb64_in1k.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29581 bash tools/dist_train.sh configs/cluster/cluster-tiny_4xb64_in1k.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/cluster/cluster-tiny_4xb64_in1k.py work_dirs/pretrained_in1k/04swin/swin_tiny_224_b16x64_300e_imagenet_20210616_090925-66df6be6.pth
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29582 bash tools/dist_test.sh configs/cluster/cluster-tiny_4xb64_in1k.py 权重路径 4
+
+# ------ 08 聚类稀疏全局ClusterFormer ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py configs/cluster/cluster-tiny_debug_4xb64_in1k.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29583 bash tools/dist_train.sh configs/cluster/cluster-tiny_debug_4xb64_in1k.py 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py 配置文件路径 权重路径
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29584 bash tools/dist_test.sh 配置文件路径 权重路径 4
+
+# ------ 08 聚类稀疏全局ClusterFormer 去掉聚类过程中的相对位置编码 ------
+训练：
+CUDA_VISIBLE_DEVICES=3 python tools/train.py 配置文件路径
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29585 bash tools/dist_train.sh 配置文件路径 4
+测试：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py 配置文件路径 权重路径
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29586 bash tools/dist_test.sh 配置文件路径 权重路径 4
+
+# ------------------------ 其余指令 ------------------------
+
+统计模型参数量、计算量：
+指定显卡（因为统计过程也需要调用显卡） python tools/analysis_tools/get_flops.py 配置文件路径 --shape 224 224
+# --- 01 vit ---
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/vision_transformer/vit-base-p16_4xb64-mae_in1k.py --shape 224 224
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/vision_transformer/vit-base-p16_debug_4xb64-mae_in1k.py --shape 224 224
+# --- 03 segformer ---
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/segformer/segformer_mit-b0_4xb128_in1k-512x512.py --shape 224 224
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/segformer/segformer_mit-b0_debug_4xb128_in1k-512x512.py --shape 224 224
+# --- 04 swin ---
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/swin_transformer/swin-tiny_4xb64_in1k.py --shape 224 224
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/swin_transformer/swin-tiny_debug_4xb64_in1k.py --shape 224 224
+# --- 05 pvt ---
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/pvt/pvt-t_4x64_in1k-224x224.py --shape 224 224
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/pvt/pvt-t_debug_4x64_in1k-224x224.py --shape 224 224
+# --- 06 nat ---
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/nat/nat-mini_4xb64_in1k-224x224.py --shape 224 224
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/nat/nat-mini_debug_4xb64_in1k-224x224.py --shape 224 224
+# --- 07 twins-svt ---
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/twins/twins-svt-small_4xb64_in1k.py --shape 224 224
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/twins/twins-svt-small_debug_4xb64_in1k.py --shape 224 224
+# --- 08 swin+clusterformer ---
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/swin_transformer/swin-tiny_cluster_4xb64_in1k.py --shape 224 224
+# --- 09 swin+transformer-vq
+CUDA_VISIBLE_DEVICES=3 python tools/analysis_tools/get_flops.py configs/swin_transformer/swin-tiny_vq_4xb64_in1k.py --shape 224 224
+
+可视化学习率曲线：
+指定显卡（因为可视化过程也需要调用显卡） python tools/visualization/vis_scheduler.py 配置文件路径 -s 学习率曲线保存路径 -n 指定显卡数量（如果是by iteration更新学习率时，显卡数量会影响曲线） -d 指定数据集中的图片数量（如果是by iteration更新学习率时，图片数量会影响曲线）
+# --- 01 vit ---
+CUDA_VISIBLE_DEVICES=3 python tools/visualization/vis_scheduler.py configs/vision_transformer/vit-base-p16_4xb64-mae_in1k.py -s work_dirs/pretrained_in1k/01vit/lr.png -n 4 -d 10000
+CUDA_VISIBLE_DEVICES=3 python tools/visualization/vis_scheduler.py configs/vision_transformer/vit-base-p16_debug_4xb64-mae_in1k.py -s work_dirs/pretrained_in1k/01vit/lr_debug.png -n 4 -d 10000
+# --- 03 segformer ---
+CUDA_VISIBLE_DEVICES=3 python tools/visualization/vis_scheduler.py configs/segformer/segformer_mit-b0_4xb128_in1k-512x512.py -s work_dirs/pretrained_in1k/03segformer/lr.png -n 4 -d 10000
+CUDA_VISIBLE_DEVICES=3 python tools/visualization/vis_scheduler.py configs/segformer/segformer_mit-b0_debug_4xb128_in1k-512x512.py -s work_dirs/pretrained_in1k/03segformer/lr_debug.png -n 4 -d 10000
+# --- 04 swin ---
+CUDA_VISIBLE_DEVICES=3 python tools/visualization/vis_scheduler.py configs/swin_transformer/swin-tiny_4xb64_in1k.py -s work_dirs/pretrained_in1k/04swin/lr.png -n 4 -d 10000
+CUDA_VISIBLE_DEVICES=3 python tools/visualization/vis_scheduler.py configs/swin_transformer/swin-tiny_debug_4xb64_in1k.py -s work_dirs/pretrained_in1k/04swin/lr_debug.png -n 4 -d 10000
+# --- 06 nat ---
+CUDA_VISIBLE_DEVICES=3 python tools/visualization/vis_scheduler.py configs/nat/nat-mini_4xb64_in1k-224x224.py -s work_dirs/pretrained_in1k/06nat/lr.png -n 4 -d 10000
+CUDA_VISIBLE_DEVICES=3 python tools/visualization/vis_scheduler.py 配置文件路径 -s work_dirs/pretrained_in1k/06nat/lr_debug.png -n 4 -d 10000
+# --- 07 twins-svt ---
+CUDA_VISIBLE_DEVICES=3 python tools/visualization/vis_scheduler.py configs/twins/twins-svt-small_4xb64_in1k.py -s work_dirs/pretrained_in1k/07twins/lr.png -n 4 -d 10000
+CUDA_VISIBLE_DEVICES=3 python tools/visualization/vis_scheduler.py configs/twins/twins-svt-small_debug_4xb64_in1k.py -s work_dirs/pretrained_in1k/07twins/lr_debug.png -n 4 -d 10000
+# --- 08 ClusterFormer ---
+CUDA_VISIBLE_DEVICES=3 python tools/visualization/vis_scheduler.py configs/cluster/cluster-tiny_4xb64_in1k.py -s work_dirs/pretrained_in1k/08cluster/lr.png -n 4 -d 10000
+CUDA_VISIBLE_DEVICES=3 python tools/visualization/vis_scheduler.py configs/cluster/cluster-tiny_debug_4xb64_in1k.py -s ork_dirs/pretrained_in1k/08cluster/lr_debug.png -n 4 -d 10000
+
+
+中间过程可视化：
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/nat/nat-mini_debug_vis_4xb64_in1k-224x224.py /mnt/hdd/hjf/workspace/mmpretrain/work_dirs/nat-mini_debug_4xb64_in1k-224x224/20250305_012143_train/epoch_50.pth
+
+统计码表利用率
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/swin_transformer/swin-tiny_vq_statistic_4xb64_in1k.py /mnt/hdd/hjf/workspace/mmpretrain/work_dirs/swin-tiny_vq_4xb64_in1k/20250412_195118_train/epoch_50.pth >> work_dirs/statistic_vq.txt
+CUDA_VISIBLE_DEVICES=3 python tools/test.py configs/swin_transformer/swin-tiny_debug_statistic_4xb64_in1k.py /mnt/hdd/hjf/workspace/mmpretrain/work_dirs/swin-tiny_debug_4xb64_in1k/20250301_013956_train/epoch_50.pth >> work_dirs/statistic_CSGA.txt
