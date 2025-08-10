@@ -5,11 +5,10 @@ _base_ = [
     '../_base_/default_runtime.py'
 ]
 
-# 数据集配置（单卡）
-data_root = '/mnt/ssd/hjf/ImageNet'
+# data setting
+data_root = 'path/to/ImageNet'
 num_gpus = 4
 batch_size_pergpu = 64
-accumulative_counts = 1
 
 train_dataloader = dict(
     batch_size=batch_size_pergpu, 
@@ -31,15 +30,15 @@ val_dataloader = dict(
 
 test_dataloader = val_dataloader
 
-# model settings
-checkpoint = '/home/hjf/workspace/mmpretrain/work_dirs/pretrained_in1k/07twins/twins-svt-small_3rdparty_8xb128_in1k_20220126-8fe5205b.pth'
 
+# model setting
+checkpoint = 'path/to/official/pre-trained/weight.pth'
 model = dict(
     backbone=dict(
         type='SVTMod',
         arch='small',
         qk_scale=15.0,
-        attn_type='clusterattn',
+        attn_type='csga',
         with_cp=False,
     ), 
     head=dict(
@@ -50,12 +49,11 @@ model = dict(
     ],
 )
 
-# schedule settings
+# optimization setting
 optim_wrapper = dict(
     optimizer=dict(
         type='AdamW',
-        lr=5e-4 * num_gpus * batch_size_pergpu * accumulative_counts / 512,
-        # lr=5e-4 * 128 * 8 / 512,  # learning rate for 128 batch size, 8 gpu.
+        lr=5e-4 * num_gpus * batch_size_pergpu / 512,
         weight_decay=0.05,
         eps=1e-8,
         betas=(0.9, 0.999)),
@@ -95,8 +93,6 @@ train_cfg = dict(
 )
 
 default_hooks = dict(
-    # 每 100 次迭代打印一次日志。
     logger=dict(type='LoggerHook', interval=100),
-    # 每隔interval个epoch保存一次权重
     checkpoint=dict(type='CheckpointHook', interval=5)
 )

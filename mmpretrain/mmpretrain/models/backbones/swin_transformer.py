@@ -1,10 +1,3 @@
-'''
-架构说明: 原生swin-transformer
-
-训练结果: /home/hjf/workspace/mmpretrain/work_dirs/swin-tiny_4xb64_in1k/20241212_181926/20241212_181926.log
-训练配置: batch_size: 4 * 64 *4(梯度累计4次, 模拟1024), lr = 4e-4(考虑batch_size的最终结果), 50 epoch, ImageNet-1K, swin-t的预训练模型
-top1: 80.538
-'''
 # Copyright (c) OpenMMLab. All rights reserved.
 from copy import deepcopy
 from typing import Sequence

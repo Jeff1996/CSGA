@@ -1,1 +1,0 @@
-# 由mmsegmentation的setr模型改写而来

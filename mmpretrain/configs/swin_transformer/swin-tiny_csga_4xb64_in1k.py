@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/models/nat.py',
+    '../_base_/models/swin_transformer/tiny_224.py',
     '../_base_/datasets/imagenet_bs64_swin_224.py',
     '../_base_/schedules/imagenet_bs1024_adamw_swin.py',
     '../_base_/default_runtime.py'
@@ -36,23 +36,34 @@ checkpoint = 'path/to/official/pre-trained/weight.pth'
 model = dict(
     type='ImageClassifier',
     backbone=dict(
-        type='NATMod',
-        embed_dim=64,
-        mlp_ratio=3.0,
-        depths=[3, 4, 6, 5],
-        num_heads=[2, 4, 8, 16],
-        drop_path_rate=0.2,
-        kernel_size=7,
+        _delete_=True,
+        type='SwinTransformerMod', 
+        pretrain_img_size=224,
+        embed_dims=96,
+        patch_size=4,
+        window_size=7,
+        mlp_ratio=4,
+        depths=[2, 2, 6, 2],
+        num_heads=[3, 6, 12, 24],
+        strides=(4, 2, 2, 2),
+        # out_indices=(0, 1, 2, 3),
         out_indices=(3, ),
         qkv_bias=True,
+        # qk_scale=None,
         qk_scale=15.0,
-        with_cp=False,
+        patch_norm=True,
+        drop_rate=0.,
+        attn_drop_rate=0.,
+        drop_path_rate=0.2,
+        use_abs_pos_embed=False,
+        act_cfg=dict(type='GELU'),
+        with_cp=False,                          # gradient checkpoint
     ),
     neck=dict(type='GlobalAveragePooling'),
     head=dict(
         type='LinearClsHead',
         num_classes=1000,
-        in_channels=512,
+        in_channels=768,
         init_cfg=None,  # suppress the default init_cfg of LinearClsHead.
         loss=dict(
             type='LabelSmoothLoss', label_smooth_val=0.1, mode='original'),
@@ -67,7 +78,6 @@ model = dict(
     ]),
 )
 
-
 # optimization setting
 # for batch in each gpu is 128, 8 gpu
 # lr = 5e-4 * 128 * 8 / 512 = 0.001
@@ -80,9 +90,13 @@ optim_wrapper = dict(
         betas=(0.9, 0.999)
     ),
     paramwise_cfg=dict(
+        norm_decay_mult=0.0,
+        bias_decay_mult=0.0,
+        flat_decay_mult=0.0,
         custom_keys={
-            'rpb': dict(decay_mult=0.), 
-            'norm': dict(decay_mult=0.),
+            '.absolute_pos_embed': dict(decay_mult=0.0),
+            '.relative_position_bias_table': dict(decay_mult=0.0), 
+            # 'scale': dict(decay_mult=0.0)
         }
     ),
     clip_grad=dict(max_norm=5.0),
@@ -117,5 +131,6 @@ train_cfg = dict(
 
 default_hooks = dict(
     logger=dict(type='LoggerHook', interval=100),
-    checkpoint=dict(type='CheckpointHook', interval=5)
+    checkpoint=dict(type='CheckpointHook', interval=5
+    )
 )

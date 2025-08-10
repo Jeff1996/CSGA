@@ -19,351 +19,168 @@ from mmengine.utils import to_2tuple
 
 from mmpretrain.registry import MODELS
 from ..utils.embed_seg import PatchEmbed, PatchMerging
-from ..utils.vqt_tools import reduce_sum
 
-import os
+iterations = 1      # k-means聚类次数
 
-# 自定义梯度传播过程
-class vecQuantization(Function):  
-    @staticmethod  
-    def forward(ctx, x, c):
-        # # 前向传播（基于余弦相似度/单位化点积）
-        # # x = x - x.mean(dim=(0, 2), keepdim=True)                            # 这里可以改为EMA更新的均值
-        # # x = x / torch.norm(x, dim=-1, keepdim=True)
-        # # codebook = c - c.mean(dim=-2, keepdim=True)
-        # # codebook = codebook / torch.norm(codebook, dim=-1, keepdim=True)
-        # cosSim = torch.einsum('bhld,hsd->bhls', x, c)                       # 相似度矩阵, [B, heads, L, S]
-        # delta_index = cosSim.argmax(dim=-1)                                 # 索引矩阵, [B, heads, L]
-        # delta_onehot = F.one_hot(delta_index, c.shape[-2]).float()          # one-hot索引矩阵, [B, heads, L, S]
 
-        # 前向传播（基于欧式距离）
-        x2 = torch.sum(torch.square(x), dim=-1).unsqueeze(-1)               # [B, heads, L, d] -> [B, heads, L] -> [B, heads, L, 1]
-        xc = torch.einsum('bhld,hsd->bhls', x, c)                           # [B, heads, L, S]
-        c2 = torch.sum(torch.square(c), dim=-1).unsqueeze(1).unsqueeze(0)   # [heads, S, d] -> [heads, S] -> [heads, 1, S] -> [1, heads, 1, S]
-        distance2 = x2 - 2*xc + c2                                          # 待量化序列中每一个向量与码表中每一个向量的欧氏距离的平方, [B, L, S]
-        delta_index = distance2.argmin(dim=-1)                              # 索引矩阵, [B, heads, L]
-        delta_onehot = F.one_hot(delta_index, c.shape[-2]).float()           # one-hot索引矩阵, [B, heads, L, S]
-
-        # print('------------ 调试点 ------------')
-        # B, heads, L = delta_index.shape
-        # num_tokens = B * heads * L
-        # for index in torch.unique(delta_index):
-        #     print('{}: {:.3f}%'.format(index, (delta_index==index).float().sum() / num_tokens * 100))
-
-        # 保存必要的中间变量用于梯度反向传播
-        ctx.save_for_backward(delta_onehot)
-
-        return delta_onehot, c                                              # forward的输出个数与backward的输入个数相同
-  
-    @staticmethod  
-    def backward(ctx, grad_output_delta_onehot, grad_output_c):  
-        # print('grad of {:15s}, min: {:10.10f}, mean: {:10.10f}, max: {:10.10f}'.format('c', grad_output_c.min(), grad_output_c.mean(), grad_output_c.max()))
-        # 获取中间变量
-        (delta_onehot, ) = ctx.saved_tensors
-
-        # # --- 梯度反传方案1, 码本通过EMA更新, 不需要梯度 ---
-        # # 来自码本的梯度
-        # grad_x = torch.einsum('bhls,hsd->bhld', delta_onehot, grad_output_c)# 来自码表c的梯度
-        # # 来自分配矩阵Δ的梯度
-        # # 被废弃了，因为会导致梯度爆炸
-
-        # --- 梯度反传方案2，需要归一化码本梯度：具体而言，码表中的某个向量被多少个token调用，就要复制多少次梯度，如果不进行归一化，将会发生梯度爆炸 ---
-        delta_onehot_sum = torch.einsum('bhls->hs', delta_onehot).unsqueeze(dim=-1).clip(min=1.0)   # bhls -> hs -> hs1
-        grad_output_c_norm = grad_output_c / delta_onehot_sum
-        grad_x = torch.einsum('bhls,hsd->bhld', delta_onehot, grad_output_c_norm)   # 来自码表c的梯度
-
-        return grad_x, None                                                 # backward的输出个数与forward的输入个数相同，如果某个输入变量不需要梯度，则对应返回None
-
-# 向量量化器
-class Quantizer(nn.Module):
-    '''
-    序列量化器
-    1. 保存一个可更新的量化码表C
-    2. 构造量化的K序列K^
-    3. 获取输入矩阵K量化后的索引矩阵Δ
-    '''
-    def __init__(self, heads: int, codes: int, dim: int, ema: bool = True):
+class Cluster(nn.Module):
+    def __init__(self, iterations: int=1, head_embed_dims: int=32, qk_scale: float=15.0):
         '''
-        codes   : 码表中行向量的个数
-        dim     : 码表每个行向量的维数(与K矩阵的维数一致)
+        window_size : 下采样倍率
+        iterations  : k-means聚类次数
+        qk_scale    : 基础缩放系数
         '''
-        super(Quantizer, self).__init__()
-        self.ema = ema                                                          # 是否采用EMA更新码表
-        c_sum_init = self.initCodebook(heads, codes, dim)                       # 码本初始化（完全参考Transformer-VQ）
-        c_count_init = torch.ones(heads, codes)                                 # 初始状态下，规定码本中的每个向量由一个元素组成
+        super(Cluster, self).__init__()
+        self.iterations = iterations            # k-means聚类次数
+        # # k-means聚类
+        # self.proj = nn.Sequential(
+        #     nn.Linear(head_embed_dims, 4*head_embed_dims, bias=False),
+        #     nn.GELU(),
+        #     nn.Linear(4*head_embed_dims,head_embed_dims, bias=False),
+        #     nn.GELU()
+        # )
+        self.scale_base = qk_scale              # 固定的基础缩放系数
+        self.scale = nn.Parameter(              # 可学习的缩放系数的缩放系数
+            torch.tensor(1.0)
+        )
 
-        if ema:
-            # 使用EMA更新的码表
-            self.c_sum = nn.Parameter(c_sum_init, requires_grad=False)          # 汇总的元素集合
-            self.c_count = nn.Parameter(c_count_init, requires_grad=False)      # 汇总的元素集合
+    # 相对位置掩膜构造函数
+    @staticmethod
+    @torch.no_grad
+    def getMask(size: tuple, index_onehot: torch.Tensor, gain: float=1.0):
+        '''
+        size: 特征图尺寸, (h, w)
+        index_onehot: 聚类结果(每个像素对应的聚类中心的one-hot索引), [B, num_heads, L, S]
+        gain: 增益系数
+        '''
+        assert type(size) == tuple, 'Data type of size in function <getMask> should be <tuple>!'
+        assert size.__len__() == 2, 'Length of size should be 2!'
+        coords_h = torch.arange(size[0])
+        coords_w = torch.arange(size[1])
+        coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 构造坐标窗口元素坐标索引，[2, h, w]
+        # 一维化特征图像素坐标，[2, L]
+        coords_featuremap = torch.flatten(coords, start_dim=1).float().to(index_onehot.device)
+        # [B, num_heads, 2, L]
+        coords_featuremap = coords_featuremap.reshape(
+            1, 1, 2, -1
+        ).repeat(index_onehot.shape[0], index_onehot.shape[1], 1, 1)
+        # [B, num_heads, 1, S]
+        index_onehot_sum = torch.sum(index_onehot, dim=-2, keepdim=True)
+        index_onehot_sum[index_onehot_sum==0] = 1
+        
+        # 聚类中心坐标，[B, num_heads, 2, S]
+        coords_clustercenter = torch.einsum(
+            'bhcl,bhls->bhcs', coords_featuremap, index_onehot
+        ) / index_onehot_sum
+        # 对于没有对应元素的类，其距离设置为无穷远
+        coords_clustercenter[coords_clustercenter < 1e-12] = torch.inf
 
-            # # 也可以考虑使用register_buffer方法定义上述两个不需要梯度更新的参数
-            # self.register_buffer('c_sum', c_sum_init)
-            # self.register_buffer('c_count', c_count_init)
+        # 构造相对位置矩阵, 第一个矩阵是h方向的相对位置差, 第二个矩阵是w方向的相对位置差
+        relative_coords = coords_featuremap[:, :, :, :, None] - coords_clustercenter[:, :, :, None, :]
+        distance = torch.sqrt(                                      # [B, num_heads, L, S]
+            torch.square(relative_coords[:,:,0,:,:]) + torch.square(relative_coords[:,:,1,:,:])
+        )
+        # exp操作用于处理distance中的0, [B, num_heads, L, S]
+        distance_exp = torch.exp(distance)
+        # 距离越远的token注意力增强越少(加性增强), 最大值为1*gain, 最小值可以接近0, [B, num_heads, L, S]
+        mask = (1 / distance_exp) * gain
+        return mask
 
-            c_sum_add = torch.zeros(heads, codes, dim)                          # 用于累计更新量
-            self.c_sum_add = nn.Parameter(c_sum_add, requires_grad=False)
-
-            c_count_add = torch.zeros(heads, codes)                             # 用于归一化更新量
-            self.c_count_add = nn.Parameter(c_count_add, requires_grad=False)
-
-            self.c_count = nn.Parameter(c_count_add, requires_grad=False)       # 用于统计整个更新过程，码表中的每个向量被更新的次数
-
-            self.update_count = 1                                               # 更新量累计次数统计
-            self.update_interval = 1                                            # 码表更新间隔(码表两次更新间的更新量累计次数)
+    # 迭代更新码表
+    def updateCenter(self, x: torch.Tensor, c: torch.Tensor, relative_position_bias: None):
+        '''
+        输入: 
+        x: tensor, [batch_size, num_heads, L, head_embed_dims], 待聚类数据
+        c: tensor, [batch_size, num_heads, L', head_embed_dims], 初始化聚类中心
+        relative_position_bias: tensor, [batch_size, num_heads, L, L'], 相对位置编码
+        输出：
+        c_new: tensor, [B, num_heads, L', head_embed_dims], 更新后的聚类中心
+        affinity: 
+        '''
+        # [B, num_heads, L, L']
+        scale = self.scale_base * self.scale
+        affinity_raw = torch.einsum('bhld,bhmd->bhlm', x, c)
+        affinity = affinity_raw  * scale
+        if not relative_position_bias is None:
+            affinity = affinity + relative_position_bias
+        
+        # 增加的辅助损失
+        if self.training:
+            # affinity_aux = affinity_raw * scale.detach()
+            # # 考虑到相对位置编码不会发生变化，因此可以不引入相对位置编码
+            # if not relative_position_bias is None:
+            #     affinity_aux = affinity_aux + relative_position_bias
+            affinity_aux = None           # 不启用affinity loss
         else:
-            # 使用梯度更新的码表
-            self.c = nn.Parameter(c_sum_init)
+            affinity_aux = None
 
-        self.gamma = 0.99                                                       # EMA超参数（历史成分占比）
-        self.vecQuantization = vecQuantization()                                # 自定义梯度反传过程的向量量化函数
+        # 使用掩膜进行非极大值抑制
+        affinity_mask = torch.zeros_like(affinity)
+        affinity_mask[affinity < affinity.max(dim=-1, keepdim=True)[0]] = -torch.inf
+        # [B, num_heads, L, L']
+        affinity_onehot = torch.softmax(affinity + affinity_mask, dim=-1)
 
-    def stopGradient(self, x: torch.tensor):
-        '''
-        梯度停止函数(stop gradient)
-        '''
-        return x.detach()
-    
-    def STE(self, value_forward: torch.tensor, grad_backward: torch.tensor):
-        '''
-        梯度直传函数(Straight-Through Estimator)
-        解决由于argmin操作导致的梯度中断，
-        前向传播时使用value_forward变量值，
-        反向传播时grad_backward变量将继承value_forward变量的梯度
+        # 更新聚类中心
+        # [B, num_heads, L', head_embed_dims]
+        c_sum = torch.einsum('bhlm,bhld->bhmd', affinity_onehot, x)
+        # 直接单位化，就不用affinity归一化了
+        c_new = F.normalize(c_sum, dim=-1)
 
-        输入：
-        value_forward: 前向传播提供值，反向传播被继承梯度
-        grad_backward: 前向传播无贡献，反向传播继承value_forward的梯度
-        '''
-        assert value_forward.shape == grad_backward.shape, "value_forward and grad_backward have different shapes!"
-        return grad_backward + self.stopGradient(value_forward - grad_backward)
+        return c_new, affinity_onehot, affinity_aux, scale.detach()
 
-    def initCodebook(self, heads: int, s: int, dim: int, start: int=0, lam: int=10000):
-        '''
-        参考Transformer-VQ, 初始化码本
-        '''
-        pos_seq = start + torch.arange(s)
-        inv_lams = 1 / (lam ** (torch.arange(0, dim, 2) / dim))       # Transformer原生的正余弦位置编码
-        pre = pos_seq[..., None] * inv_lams[None, ...]
-        sin = torch.sin(pre)
-        cos = torch.cos(pre)
-        codebook = torch.concatenate([sin, cos], axis=-1)
-        codebook = (dim**-0.25) * codebook[None, ...]
-        codebook = codebook.repeat(heads, 1, 1)
-        return codebook
-
-    def getCodebook(self):
-        '''
-        返回归一化的码表
-        c: [heads, codes, dim]
-        '''
-        if self.ema:
-            c = self.c_sum / torch.clip(self.c_count[..., None], 1e-6)          # EMA更新的码本(不在是nn.Parameter类, 变成了普通tensor)
-        else:
-            c = self.c.data                                                     # 梯度更新的码本
-        return c
-
-    def emaAccumulate(self, delta_onehot, x):
-        '''
-        累计码表更新量
-        更新量累计在量化之后，码表更新在量化之前，由此才不会影响梯度反向传播
-        '''
-        c_sum_add = torch.einsum('bhls,bhld->hsd', delta_onehot, x)             # [heads, S, dim]
-        c_count_add = torch.einsum('bhls->hs', delta_onehot)                    # [heads, S]
-        try:
-            reduce_sum(c_sum_add)                                               # 多卡同步
-            reduce_sum(c_count_add)                                             # 多卡同步
-        except:
-            pass
-        self.c_sum_add.data = self.c_sum_add + c_sum_add                        # 累计
-        self.c_count_add.data = self.c_count_add + c_count_add                  # 累计
-        self.c_count.data = self.c_count + c_count_add                          # 测试用参数，不清零
-
-    def updateCodebook(self):
-        '''
-        EMA更新码表
-        delta_onehot: tensor, [batch size, heads, L, S], 量化K的one-hot索引矩阵Δ
-        x           : tensor, [batch size, heads, L, dim], K矩阵
-        '''
-        # 计算更新量（单位化）
-        c_sum_add = self.c_sum_add.data                                         # [heads, S, dim]
-        c_count_add = torch.clip(self.c_count_add.data, min=1e-6)                # [heads, S], clip操作防止除以0, 但是又不能设得太大, 否则长期没有成员的码本向量会越来越趋近于0向量
-
-        # 更新
-        self.c_sum.data = self.c_sum * self.gamma + c_sum_add * (1 - self.gamma)
-        self.c_count.data = self.c_count * self.gamma + c_count_add * (1 - self.gamma)
-
-        # 清空累计
-        self.c_sum_add.fill_(0.)
-        self.c_count_add.fill_(0.)
-
-    # 测试用的聚类分配程序，没有设计梯度反向传播规则
-    def clustering(self, x, c):
-        # 前向传播（基于欧式距离）
-        x2 = torch.sum(torch.square(x), dim=-1).unsqueeze(-1)               # [B, heads, L, d] -> [B, heads, L] -> [B, heads, L, 1]
-        xc = torch.einsum('bhld,hsd->bhls', x, c)                           # [B, heads, L, S]
-        c2 = torch.sum(torch.square(c), dim=-1).unsqueeze(1).unsqueeze(0)   # [heads, S, d] -> [heads, S] -> [heads, 1, S] -> [1, heads, 1, S]
-        distance2 = x2 - 2*xc + c2                                          # 待量化序列中每一个向量与码表中每一个向量的欧氏距离的平方, [B, L, S]
-        delta_index = distance2.argmin(dim=-1)                              # 索引矩阵, [B, heads, L]
-        delta_onehot = F.one_hot(delta_index, c.shape[-2]).float()           # one-hot索引矩阵, [B, heads, L, S]
-        delta_onehot.requires_grad_()
-        c.requires_grad_()
-        return delta_onehot, c
-
-    def forward(self, x):
+    # 聚类中心初始化与聚类中心更新
+    def getCenter(self, x: torch.Tensor, delta_onehot_x: torch.Tensor):
         '''
         输入
-        x               : tensor, [batch size, heads, L, dim], K矩阵
-
+        x                       : tensor, [batch_size, num_heads, H, W, head_embed_dims], 待聚类的K矩阵
+        delta_onehot_x          : [batch_size*num_heads, S, H_x, W_x], 来自上一个block的聚类结果, 将在这里进行更新
         输出
-        delta_onehot    : tensor, [batch size, heads, L , S], 量化K的索引矩阵Δ
-        c               : tensor, [heads, S, dim], 量化码表
+        delta_onehot            : tensor, [batch_size, num_heads, L, L'], one-hot矩阵
+        c                       : tensor, [batch_size, num_heads, L', head_embed_dims], 聚类的K矩阵
+        relative_position_bias  : tensor, [batch_size, num_heads, L, L']
+        affinity                : tensor, [batch_size, num_heads, L, L'], 乘上缩放系数, 加上相对位置编码的余弦相似度
+        scale                   : tensor, [1, ], 缩放系数, 用于辅助损失标签的构造
         '''
-        # 更新码表(避免影响本次梯度反向传播, 在量化操作前进行更新)
-        if self.ema and self.training and (self.update_count % self.update_interval == 0):
-            self.updateCodebook()
-            # self.saveLog('./log.txt')
+        batch_size, num_heads, H, W, head_embed_dims = x.shape
+        L_ = delta_onehot_x.shape[1]
+        x = x.reshape(batch_size, num_heads, -1, head_embed_dims)
 
-        # 量化(需要将c矩阵获取到的梯度中继给x, delta_onehot的梯度则停掉)
-        delta_onehot, c = self.vecQuantization.apply(x, self.getCodebook())
+        # 如果头数有增加（不能减少）（一般是翻一倍），则对现有聚类索引进行复制，[batch_size, num_heads, L, L']
+        delta_onehot = delta_onehot_x.reshape(batch_size, -1, L_, H*W).transpose(-2, -1)
+        delta_onehot = delta_onehot.repeat(1, num_heads//delta_onehot.shape[1], 1, 1)
 
-        # # 配合STE试试: 和猜想的一样，没有用，因为k_hat除了参与量化损失计算，并没有参与主要的推理
-        # delta_onehot, c = self.clustering(x, self.getCodebook())
+        # 初始化聚类中心，[batch_size, num_heads, L', head_embed_dims], 如果某个聚类中心没有元素，则为零向量
+        c = torch.einsum('bhlm,bhld->bhmd', delta_onehot, x)
+        c = F.normalize(c, dim=-1)      # 单位化c_init, 便于后续进行余弦相似度计算
+        relative_position_bias = self.getMask((H, W), delta_onehot)
+        affinity_aux = None
+        scale = None
 
-        # 累计码表更新量(量化操作之后进行)
-        if self.ema and self.training:
-            self.update_count += 1
-            self.emaAccumulate(delta_onehot, x)
+        # 对x做一个特征映射
 
-        return delta_onehot, c
+        # relative_position_bias = None
+        for _ in range(self.iterations):
+            # [batch_size, num_heads, L', head_embed_dims], [batch_size, num_heads, L, L']
+            c, delta_onehot, affinity_aux, scale = self.updateCenter(x, c, relative_position_bias)
+            # 更新相对位置编码(注意需要断开delta_onehot的梯度)
+            relative_position_bias = self.getMask((H, W), delta_onehot)
 
-# 基于聚类的量化注意力
-class QuantizationAttn(BaseModule):
-    """Window based multi-head self-attention (W-MSA) module with relative
-    position bias.
+        return delta_onehot, c, relative_position_bias, affinity_aux, scale
 
-    Args:
-        embed_dims (int): Number of input channels.
-        num_heads (int): Number of attention heads.
-        window_size (tuple[int]): The height and width of the window.
-        qkv_bias (bool, optional):  If True, add a learnable bias to q, k, v.
-            Default: True.
-        qk_scale (float | None, optional): Override default qk scale of
-            head_dim ** -0.5 if set. Default: None.
-        attn_drop_rate (float, optional): Dropout ratio of attention weight.
-            Default: 0.0
-        proj_drop_rate (float, optional): Dropout ratio of output. Default: 0.
-        init_cfg (dict | None, optional): The Config for initialization.
-            Default: None.
-    """
-
-    def __init__(
-        self,
-        embed_dims,
-        num_heads,
-        window_size,
-        qkv_bias=True,
-        qk_scale=None,
-        codes=256,
-        attn_drop_rate=0.,
-        proj_drop_rate=0.,
-        dropout_layer=dict(type='DropPath', drop_prob=0.),
-        init_cfg=None,
-        id_stage=0,
-        id_block=0
-    ):
-
-        super().__init__(init_cfg=init_cfg)
-        self.embed_dims = embed_dims
-        self.window_size = window_size  # Wh, Ww
-        self.num_heads = num_heads
-        self.id_stage = id_stage
-        self.id_block = id_block
-        self.num_heads_local = num_heads
-        self.num_heads_global = num_heads
-
-        head_embed_dims = embed_dims // num_heads
-        # 固定缩放系数
-        self.scale_base = qk_scale or head_embed_dims**-0.5
-
-        # # 构造常规qkv
-        # self.qkv = nn.Linear(embed_dims, embed_dims * 3, bias=qkv_bias)
-
-        # 分开构造qkv
-        self.q = nn.Linear(embed_dims, embed_dims, bias=qkv_bias)
-        self.k = nn.Linear(embed_dims, embed_dims, bias=qkv_bias)
-        self.v = nn.Linear(embed_dims, embed_dims, bias=qkv_bias)
-
-        # 实例化聚类器
-        self.codes = codes              # 码本中的向量数
-        self.cluster = Quantizer(num_heads, codes, head_embed_dims)
-        
-        self.attn_drop_rate = attn_drop_rate
-
-        self.proj = nn.Linear(embed_dims, embed_dims)
-        self.proj_drop = nn.Dropout(proj_drop_rate)
-
-        # 慢速注意力需要这两项
-        self.attn_drop = nn.Dropout(attn_drop_rate)
-        self.softmax = nn.Softmax(dim=-1)
-
-
-    def forward(self, x: torch.Tensor):
-        """
-        Args:
-            x (tensor): input features with shape of (B, H, W, C)
-        输出：
-            x (tensor): [B, H, W, C]
-        """
-        batch_size, H, W, C = x.shape
-
-        q = self.q(x).reshape(batch_size, H*W, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-        k = self.k(x).reshape(batch_size, H*W, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-        v = self.v(x).reshape(batch_size, H*W, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-
-        # 使用固定缩放系数
-        q = q * self.scale_base
-
-        # [batch_size, num_heads, L, S], [num_heads, S, head_embed_dims]
-        delta_onehot, c = self.cluster(k)
-
-        # 量化损失计算
-        k_hat = torch.einsum('bhls,hsd->bhld', delta_onehot, c)
-
-        # # L2范数量化损失度量(参考)
-        # error_quantization = torch.norm(k - k_hat, dim=-1).square().sum(dim=1).mean()
-        # L2范数量化损失度量(修改:设置距离损失上限，防止过大导致训练不稳定)
-        error_quantization = torch.norm(k - k_hat, dim=-1).square().sum(dim=1).mean().clip(max=10. * self.num_heads)
-        # 相对量化损失
-        # error_quantization = (torch.norm(k - k_hat, dim=-1) / torch.norm(k).clip(min=1e-6)).mean()
-        # # 取消量化损失
-        # error_quantization = torch.tensor(0., device=k.device)
-
-        # [batch_size, num_heads, L, S]
-        qcT = torch.einsum('bhld,hsd->bhls', q, c)
-        qcT = qcT - qcT.max(dim=-1, keepdim=True)[0]
-        qcT_exp = torch.exp(qcT)
-
-        # 计算softmax分子
-        # [batch_size, num_heads, S, head_embed_dims]
-        deltaTv = torch.einsum('bhls,bhld->bhsd', delta_onehot, v)
-        # [batch_size, num_heads, L, head_embed_dims]
-        numerator = torch.einsum('bhls,bhsd->bhld', qcT_exp, deltaTv)
-        # 计算softmax分母
-        # [batch_size, num_heads, S]
-        deltaT1 = torch.einsum('bhls->bhs', delta_onehot)
-        # [batch_size, num_heads, L, 1]
-        denominator = torch.einsum('bhls,bhs->bhl', qcT_exp, deltaT1).unsqueeze(-1).clip(min=1e-6)
-
-        # 计算注意力加权的v
-        # [batch_size, num_heads, L, head_embed_dims]
-        x = numerator / denominator
-        x = x.transpose(1, 2).reshape(batch_size, H, W, C)
-
-        x = self.proj(x)
-        x = self.proj_drop(x)
-
-        return x, error_quantization
+    def forward(self, x: torch.Tensor, delta_onehot_x: torch.Tensor):
+        '''
+        输入
+        x                       : tensor, [batch_size, num_heads, H, W, head_embed_dims], 待聚类的K矩阵
+        delta_onehot_x          : [batch_size*num_heads, S, H_x, W_x], 来自上一个block的聚类结果, 将在这里进行更新
+        输出
+        delta_onehot            : tensor, [batch_size, num_heads, L, L'], one-hot矩阵, 更新后的聚类结果
+        c                       : tensor, [batch_size, num_heads, L', head_embed_dims], 聚类的K矩阵
+        relative_position_bias  : tensor, [batch_size, num_heads, L, L']
+        affinity_aux            : tensor, [batch_size, num_heads, L, L'], 乘上缩放系数, 加上相对位置编码的余弦相似度
+        scale                   : tensor, [1, ], 缩放系数, 用于辅助损失标签的构造
+        '''
+        delta_onehot, c, relative_position_bias, affinity_aux, scale = self.getCenter(x, delta_onehot_x)
+        return delta_onehot, c, relative_position_bias, affinity_aux, scale
 
 # 分块注意力
 class WindowMSA(BaseModule):
@@ -437,7 +254,7 @@ class WindowMSA(BaseModule):
     def init_weights(self):
         trunc_normal_(self.relative_position_bias_table, std=0.02)
 
-    def forward(self, x, mask=None):
+    def forward(self, x, batch_size, mask=None):
         """
         Args:
             x (tensor): input features with shape of (num_windows*B, N, C)
@@ -480,6 +297,8 @@ class WindowMSA(BaseModule):
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)                 # [B*num_windows, num_heads, N, dim]
 
         error_quantization = torch.tensor(0.0, device=x.device)
+        affinity = None
+        scale = None
 
         x = self.proj(x)
         x = self.proj_drop(x)
@@ -490,7 +309,7 @@ class WindowMSA(BaseModule):
         # print('\n')
         # # ------------------------------------------------------------------------------------------------------------------------
 
-        return x, error_quantization
+        return x, error_quantization, affinity, scale
 
     @staticmethod
     def double_step_seq(step1, len1, step2, len2):
@@ -498,7 +317,125 @@ class WindowMSA(BaseModule):
         seq2 = torch.arange(0, step2 * len2, step2)
         return (seq1[:, None] + seq2[None, :]).reshape(1, -1)
 
-# 在这里切换分块注意力和量化全局注意力
+# 基于聚类的量化注意力
+class CSGA(BaseModule):
+    """Window based multi-head self-attention (W-MSA) module with relative
+    position bias.
+
+    Args:
+        embed_dims (int): Number of input channels.
+        num_heads (int): Number of attention heads.
+        window_size (tuple[int]): The height and width of the window.
+        qkv_bias (bool, optional):  If True, add a learnable bias to q, k, v.
+            Default: True.
+        qk_scale (float | None, optional): Override default qk scale of
+            head_dim ** -0.5 if set. Default: None.
+        attn_drop_rate (float, optional): Dropout ratio of attention weight.
+            Default: 0.0
+        proj_drop_rate (float, optional): Dropout ratio of output. Default: 0.
+        init_cfg (dict | None, optional): The Config for initialization.
+            Default: None.
+    """
+
+    def __init__(
+        self,
+        embed_dims,
+        num_heads,
+        window_size,
+        qkv_bias=True,
+        qk_scale=None,
+        attn_drop_rate=0.,
+        proj_drop_rate=0.,
+        dropout_layer=dict(type='DropPath', drop_prob=0.),
+        init_cfg=None,
+        id_stage=0,
+        id_block=0
+    ):
+
+        super().__init__(init_cfg=init_cfg)
+        self.embed_dims = embed_dims
+        self.window_size = window_size  # Wh, Ww
+        self.num_heads = num_heads
+        self.id_stage = id_stage
+        self.id_block = id_block
+        self.num_heads_local = num_heads
+        self.num_heads_global = num_heads
+
+        head_embed_dims = embed_dims // num_heads
+        # # 固定缩放系数
+        # self.scale_base = qk_scale or head_embed_dims**-0.5
+        # 可学习的缩放系数
+        self.scale_base = qk_scale or head_embed_dims**-0.5
+        self.scale = nn.Parameter(torch.tensor(1.0))
+
+        # 构造常规qkv
+        self.qkv = nn.Linear(embed_dims, embed_dims * 3, bias=qkv_bias)
+
+        # 实例化聚类器
+        self.cluster = Cluster(iterations, head_embed_dims, qk_scale)
+        
+        self.attn_drop_rate = attn_drop_rate
+
+        self.proj = nn.Linear(embed_dims, embed_dims)
+        self.proj_drop = nn.Dropout(proj_drop_rate)
+
+        # 慢速注意力需要这两项
+        self.attn_drop = nn.Dropout(attn_drop_rate)
+        self.softmax = nn.Softmax(dim=-1)
+
+    # def init_weights(self):
+    #     trunc_normal_(self.relative_position_bias_table, std=0.02)
+
+    def forward(self, x: torch.Tensor, delta_onehot_x: torch.Tensor, labels = None):
+        """
+        Args:
+            x (tensor): input features with shape of (B, H, W, C)
+            delta_onehot_x: [batch_size*num_heads, S, H_x, W_x]
+        输出：
+            x (tensor): [B, H, W, C]
+        """
+        batch_size, H, W, C = x.shape
+        L_ = delta_onehot_x.shape[1]
+        # [3, batch_size, num_heads, L, head_embed_dims]
+        qkv = self.qkv(x).reshape(batch_size, H*W, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        # [batch_size, num_heads, L, head_embed_dims]
+        q, k, v = qkv[0], qkv[1], qkv[2]
+
+        # # 使用固定缩放系数
+        # q = q * self.scale_base
+
+        # 试试单位化的q/k矩阵，即以余弦相似度计算注意力
+        q = F.normalize(q, dim=-1)
+        k = F.normalize(k, dim=-1)
+        q = q * self.scale * self.scale_base
+
+        # [batch_size, num_heads, L, L'], [batch_size, num_heads, L', head_embed_dims], [batch_size, num_heads, L, L'], [batch_size, num_heads, L, L'], [1,]
+        delta_onehot, c_k, relative_position_bias, affinity, scale = self.cluster(
+            k.reshape(batch_size, self.num_heads, H, W, C // self.num_heads), delta_onehot_x
+        )
+
+        delta_onehot_x = delta_onehot.transpose(-2, -1).reshape(-1, L_, H, W)
+
+        # 量化损失计算(会带来负面影响，导致scale系数很大)
+        error_quantization = torch.tensor(0.0, device=x.device)
+
+        c_v = torch.einsum('bhlm,bhld->bhmd', delta_onehot, v)
+        delta_onehot_sum = torch.sum(delta_onehot, dim=-2).unsqueeze(-1)
+        delta_onehot_sum[delta_onehot_sum == 0] = 1
+        c_v = c_v / delta_onehot_sum
+
+        # 慢速
+        attn = (q @ c_k.transpose(-2, -1))                                  # [batch_size, num_heads, L, L']
+        attn = self.softmax(attn)
+        attn = self.attn_drop(attn)
+        x = (attn @ c_v).transpose(1, 2).reshape(batch_size, H, W, C)
+
+        x = self.proj(x)
+        x = self.proj_drop(x)
+
+        return x, delta_onehot_x, error_quantization, affinity, scale
+
+
 class ShiftWindowMSA(BaseModule):
     """Shifted Window Multihead Self-Attention Module.
 
@@ -531,7 +468,6 @@ class ShiftWindowMSA(BaseModule):
         gla=False,          # 全局注意力控制变量
         qkv_bias=True,
         qk_scale=None,
-        codes=256,
         attn_drop_rate=0,
         proj_drop_rate=0,
         dropout_layer=dict(type='DropPath', drop_prob=0.),
@@ -564,13 +500,12 @@ class ShiftWindowMSA(BaseModule):
                 id_block=id_block
             )
         else:
-            self.w_msa = QuantizationAttn(
+            self.w_msa = CSGA(
                 embed_dims=embed_dims,
                 num_heads=num_heads,
                 window_size=to_2tuple(self.window_size),
                 qkv_bias=qkv_bias,
                 qk_scale=qk_scale,
-                codes=codes,
                 attn_drop_rate=attn_drop_rate,
                 proj_drop_rate=proj_drop_rate,
                 dropout_layer=dropout_layer,
@@ -581,10 +516,9 @@ class ShiftWindowMSA(BaseModule):
 
         self.drop = build_dropout(dropout_layer)
 
-    def forward(self, query, hw_shape):
+    def forward(self, query, hw_shape, delta_onehot_x: torch.Tensor, labels = None):
         '''
-        query: tensors, [batch_size, L, C]
-        hw_shape: tuple, (H, W)
+        delta_onehot_x: [batch_size*num_heads, S, H_x, W_x]
         '''
         # if not self.training:
         #     print('id_stage: ', self.w_msa.id_stage)
@@ -601,6 +535,7 @@ class ShiftWindowMSA(BaseModule):
         pad_r = (self.window_size - W % self.window_size) % self.window_size
         pad_b = (self.window_size - H % self.window_size) % self.window_size
         query = F.pad(query, (0, 0, 0, pad_r, 0, pad_b), mode='reflect')                # F.pad的pad顺序为原始tensor从右往左的通道顺序，每个通道有2个参数
+        delta_onehot_x = F.pad(delta_onehot_x, (0, pad_r, 0, pad_b), mode='reflect')    # [batch_size*num_heads, S, H_pad, W_pad]
 
         H_pad, W_pad = query.shape[1], query.shape[2]
 
@@ -644,7 +579,7 @@ class ShiftWindowMSA(BaseModule):
             query_windows = query_windows.view(-1, self.window_size**2, C)
 
             # W-MSA/SW-MSA (nW*B, window_size*window_size, C)
-            attn_windows, error_quantization = self.w_msa(query_windows, mask=attn_mask)
+            attn_windows, error_quantization, affinity, scale = self.w_msa(query_windows, batch_size=B, mask=attn_mask)
 
             # merge windows
             attn_windows = attn_windows.view(-1, self.window_size, self.window_size, C)
@@ -660,14 +595,15 @@ class ShiftWindowMSA(BaseModule):
             else:
                 x = shifted_x
         else:   # 使用聚类全局注意力
-            x, error_quantization = self.w_msa(query)
+            x, delta_onehot_x, error_quantization, affinity, scale = self.w_msa(query, delta_onehot_x, labels)
 
         if pad_r > 0 or pad_b:
             x = x[:, :H, :W, :].contiguous()
+            delta_onehot_x = delta_onehot_x[:, :, :H, :W]  # [batch_size*num_heads, S, H_pad, W_pad]
 
         x = x.view(B, H * W, C)
         x = self.drop(x)
-        return x, error_quantization
+        return x, delta_onehot_x, error_quantization, affinity, scale
 
     def window_reverse(self, windows, H, W):
         """
@@ -736,7 +672,6 @@ class SwinBlock(BaseModule):
         gla = False,    # 全局注意力控制变量
         qkv_bias=True,
         qk_scale=None,
-        codes=256,
         drop_rate=0.,
         attn_drop_rate=0.,
         drop_path_rate=0.,
@@ -751,7 +686,6 @@ class SwinBlock(BaseModule):
         super().__init__(init_cfg=init_cfg)
 
         self.with_cp = with_cp
-        self.gla = gla
 
         self.norm1 = build_norm_layer(norm_cfg, embed_dims)[1]
         self.attn = ShiftWindowMSA(
@@ -762,7 +696,6 @@ class SwinBlock(BaseModule):
             gla = gla,  # 全局注意力控制变量
             qkv_bias=qkv_bias,
             qk_scale=qk_scale,
-            codes=codes,
             attn_drop_rate=attn_drop_rate,
             proj_drop_rate=drop_rate,
             dropout_layer=dict(type='DropPath', drop_prob=drop_path_rate),
@@ -782,89 +715,30 @@ class SwinBlock(BaseModule):
             add_identity=True,
             init_cfg=None)
 
-    def forward(self, x, hw_shape):
-        # # 完全checkpoints
-        # def _inner_forward(x, hw_shape):
-        #     identity = x
-        #     x = self.norm1(x)
-        #     x, error_quantization = self.attn(x, hw_shape)
+    def forward(self, x, hw_shape, delta_onehot_x: torch.Tensor, labels = None):
+        '''
+        delta_onehot_x: [batch_size*num_heads, S, H_x, W_x]
+        '''
 
-        #     x = x + identity
-
-        #     identity = x
-        #     x = self.norm2(x)
-        #     x = self.ffn(x, identity=identity)
-
-        #     return x, error_quantization
-        
-        # if self.with_cp and x.requires_grad and self.gla:
-        #     x, error_quantization = cp.checkpoint(_inner_forward, x, hw_shape)
-        # else:
-        #     x, error_quantization = _inner_forward(x, hw_shape)
-
-        # return x, error_quantization
-
-        # # 仅attn checkpoints
-        # # attn
-        # def _inner_forward(x, hw_shape):
-        #     identity = x
-        #     x = self.norm1(x)
-        #     x, error_quantization = self.attn(x, hw_shape)
-        #     x = x + identity
-        #     return x, error_quantization
-        
-        # if self.with_cp and x.requires_grad and self.gla:
-        #     x, error_quantization = cp.checkpoint(_inner_forward, x, hw_shape)
-        # else:
-        #     x, error_quantization = _inner_forward(x, hw_shape)
-        # # ffn    
-        # identity = x
-        # x = self.norm2(x)
-        # x = self.ffn(x, identity=identity)
-        # return x, error_quantization
-
-        # # 仅ffn checkpoints
-        # def _inner_forward(x):
-        #     identity = x
-        #     x = self.norm2(x)
-        #     x = self.ffn(x, identity=identity)
-        #     return x
-        # # attn
-        # identity = x
-        # x = self.norm1(x)
-        # x, error_quantization = self.attn(x, hw_shape)
-        # x = x + identity
-        # # ffn
-        # if self.with_cp and x.requires_grad:
-        #     x = cp.checkpoint(_inner_forward, x)
-        # else:
-        #     x = _inner_forward(x)
-        # return x, error_quantization
-
-        # 自由组合
-        def _inner_forward_attn(x, hw_shape):
+        def _inner_forward(x, hw_shape, delta_onehot_x: torch.Tensor, labels = None):
             identity = x
             x = self.norm1(x)
-            x, error_quantization = self.attn(x, hw_shape)
-            x = x + identity
-            return x, error_quantization
+            x, delta_onehot_x_dst, error_quantization, affinity, scale = self.attn(x, hw_shape, delta_onehot_x, labels)
 
-        def _inner_forward_ffn(x):
+            x = x + identity
+
             identity = x
             x = self.norm2(x)
             x = self.ffn(x, identity=identity)
-            return x
-        # attn
-        if self.with_cp and x.requires_grad and not self.gla:
-            x, error_quantization = cp.checkpoint(_inner_forward_attn, x, hw_shape)
-        else:
-            x, error_quantization = _inner_forward_attn(x, hw_shape)
-        # ffn
+
+            return x, delta_onehot_x_dst, error_quantization, affinity, scale
+
         if self.with_cp and x.requires_grad:
-            x = cp.checkpoint(_inner_forward_ffn, x)
+            x, delta_onehot_x_dst, error_quantization, affinity, scale = cp.checkpoint(_inner_forward, x, hw_shape, delta_onehot_x, labels)
         else:
-            x = _inner_forward_ffn(x)
-        return x, error_quantization
+            x, delta_onehot_x_dst, error_quantization, affinity, scale = _inner_forward(x, hw_shape, delta_onehot_x, labels)
+
+        return x, delta_onehot_x_dst, error_quantization, affinity, scale
 
 
 class SwinBlockSequence(BaseModule):
@@ -905,7 +779,6 @@ class SwinBlockSequence(BaseModule):
         window_size=7,
         qkv_bias=True,
         qk_scale=None,
-        codes=256,
         drop_rate=0.,
         attn_drop_rate=0.,
         drop_path_rate=0.,
@@ -937,7 +810,6 @@ class SwinBlockSequence(BaseModule):
                 # gla=False,
                 qkv_bias=qkv_bias,
                 qk_scale=None if i % 2 == 0 else qk_scale,
-                codes=codes,
                 drop_rate=drop_rate,
                 attn_drop_rate=attn_drop_rate,
                 drop_path_rate=drop_path_rates[i],
@@ -952,24 +824,36 @@ class SwinBlockSequence(BaseModule):
 
         self.downsample = downsample
 
-    def forward(self, x, hw_shape):
+    def forward(self, x, hw_shape, delta_onehot_x: torch.Tensor, labels = None):
         '''
         x: []
         hw_shape: (H, W)
+        delta_onehot_x: [batch_size*num_heads, S, H_x, W_x]
         '''
         error_quantization_blocks = []
+        affinity_blocks = []
+        scale_blocks = []
         for block in self.blocks:
-            x, error_quantization = block(x, hw_shape)
-            error_quantization_blocks.append(error_quantization)
+            x, delta_onehot_x, error_quantization, affinity, scale = block(x, hw_shape, delta_onehot_x, labels)
+            error_quantization_blocks.append(error_quantization)    # 量化损失（丢弃）
+            affinity_blocks.append(affinity)                        # 聚类时的余弦相似度矩阵（已经乘以缩放系数，加上相对位置编码）
+            scale_blocks.append(scale)                              # 计算余弦相似度时的缩放系数
 
         if self.downsample:
             x_down, down_hw_shape = self.downsample(x, hw_shape)
-            return x_down, down_hw_shape, x, hw_shape, error_quantization_blocks
+            # 对聚类索引进行下采样：
+            # stage0->1, [128, 128, 16**2] -> [64, 64, 16**2]
+            # stage1->2, [64, 64, 16**2]   -> [32, 32, 16**2]
+            # stage2->3, [32, 32, 16**2]   -> [16, 16, 16**2]
+            # print('------------------ shape of delta_onehot_x: {}\n ------------------'.format(delta_onehot_x.shape))
+            # [batch_size*num_heads, S, H_x, W_x]
+            delta_onehot_x = F.interpolate(delta_onehot_x, down_hw_shape, mode='nearest')
+            return x_down, down_hw_shape, x, hw_shape, delta_onehot_x, error_quantization_blocks, affinity_blocks, scale_blocks
         else:
-            return x, hw_shape, x, hw_shape, error_quantization_blocks
+            return x, hw_shape, x, hw_shape, delta_onehot_x, error_quantization_blocks, affinity_blocks, scale_blocks
 
 @MODELS.register_module()
-class SwinTransformerVQ(BaseModule):
+class SwinTransformerMod(BaseModule):
     """Swin Transformer backbone.
 
     This backbone is the implementation of `Swin Transformer:
@@ -1021,33 +905,30 @@ class SwinTransformerVQ(BaseModule):
             Defaults to None.
     """
 
-    def __init__(
-        self,
-        pretrain_img_size=224,
-        in_channels=3,
-        embed_dims=96,
-        patch_size=4,
-        window_size=7,
-        mlp_ratio=4,
-        depths=(2, 2, 6, 2),
-        num_heads=(3, 6, 12, 24),
-        strides=(4, 2, 2, 2),
-        out_indices=(0, 1, 2, 3),
-        qkv_bias=True,
-        qk_scale=None,
-        codes=256,
-        patch_norm=True,
-        drop_rate=0.,
-        attn_drop_rate=0.,
-        drop_path_rate=0.1,
-        use_abs_pos_embed=False,
-        act_cfg=dict(type='GELU'),
-        norm_cfg=dict(type='LN'),
-        with_cp=False,
-        pretrained=None,
-        frozen_stages=-1,
-        init_cfg=None
-    ):
+    def __init__(self,
+                 pretrain_img_size=224,
+                 in_channels=3,
+                 embed_dims=96,
+                 patch_size=4,
+                 window_size=7,
+                 mlp_ratio=4,
+                 depths=(2, 2, 6, 2),
+                 num_heads=(3, 6, 12, 24),
+                 strides=(4, 2, 2, 2),
+                 out_indices=(0, 1, 2, 3),
+                 qkv_bias=True,
+                 qk_scale=None,
+                 patch_norm=True,
+                 drop_rate=0.,
+                 attn_drop_rate=0.,
+                 drop_path_rate=0.1,
+                 use_abs_pos_embed=False,
+                 act_cfg=dict(type='GELU'),
+                 norm_cfg=dict(type='LN'),
+                 with_cp=False,
+                 pretrained=None,
+                 frozen_stages=-1,
+                 init_cfg=None):
         self.frozen_stages = frozen_stages
 
         if isinstance(pretrain_img_size, int):
@@ -1124,7 +1005,6 @@ class SwinTransformerVQ(BaseModule):
                 window_size=window_size,
                 qkv_bias=qkv_bias,
                 qk_scale=qk_scale,
-                codes=codes,
                 drop_rate=drop_rate,
                 attn_drop_rate=attn_drop_rate,
                 drop_path_rate=dpr[sum(depths[:i]):sum(depths[:i + 1])],
@@ -1248,6 +1128,39 @@ class SwinTransformerVQ(BaseModule):
             # load state_dict
             self.load_state_dict(state_dict, strict=False)
 
+    # 构造初始聚类列表
+    @torch.no_grad
+    def initIndex(self, shape_x: tuple, shape_c=None, stride=None, device: torch.device='cpu') -> torch.Tensor:
+        assert shape_c is None or stride is None, '不能同时指定聚类中心尺寸和stride'
+        H_x, W_x = shape_x
+        # 获取聚类中心尺寸
+        if not shape_c is None:
+            H_c, W_c = shape_c
+        else:
+            pad_h = (stride[0] - H_x % stride[0]) % stride[0]
+            pad_w = (stride[1] - W_x % stride[1]) % stride[1]
+            H_c = (H_x + pad_h) // stride[0]
+            W_c = (W_x + pad_w) // stride[1]
+        
+        # 构造索引值
+        delta_index_c = torch.arange(
+            0, H_c*W_c, device=device
+        ).reshape(
+            1, 1, H_c, W_c
+        ).float()                                           # [1, 1, H_c, W_c]
+        delta_index_x = F.interpolate(
+            delta_index_c, shape_x, mode='nearest'
+        ).long()                                            # [1, 1, H_x, W_x]
+        delta_onehot_x = F.one_hot(
+            delta_index_x, H_c*W_c
+        ).permute(
+            0, 1, 4, 2, 3
+        ).reshape(
+            1, H_c*W_c, H_x, W_x                            # [batch_size*num_heads, S, H, W]
+        ).float()                                           # [1, H_c*W_c, H_x, W_x]
+
+        return delta_onehot_x
+
     def forward(self, x, data_samples = None):
 
         if not data_samples is None:
@@ -1269,9 +1182,32 @@ class SwinTransformerVQ(BaseModule):
 
         outs = []
         error_quantization_stages = []
+        affinity_stages = []
+        scale_stages = []
+
+        if labels is None:
+            # 获取初始聚类索引值, [B, S, H_x, W_x]
+            # delta_onehot_x = self.initIndex(hw_shape, shape_c=(16, 16), device=x.device).repeat(x.shape[0], 1, 1, 1)
+            delta_onehot_x = self.initIndex(hw_shape, stride=(4, 4), device=x.device).repeat(x.shape[0], 1, 1, 1)
+            # print('------------------ shape of delta_onehot_x: {}\n ------------------'.format(delta_onehot_x.shape))
+        else:
+            H_x, W_x = hw_shape
+            stride=(8, 8)
+            pad_h = (stride[0] - H_x % stride[0]) % stride[0]
+            pad_w = (stride[1] - W_x % stride[1]) % stride[1]
+            H_c = (H_x + pad_h) // stride[0]
+            W_c = (W_x + pad_w) // stride[1]
+            labels_subsample = F.interpolate(labels, hw_shape, mode='nearest').long()   # [batch_size, 1, H_x, W_x]
+            delta_onehot_x = F.one_hot(
+                labels_subsample, H_c*W_c
+            ).permute(
+                0, 1, 4, 2, 3
+            ).reshape(
+                -1, H_c*W_c, H_x, W_x                                                   # [batch_size, S, H, W]
+            ).float()
 
         for i, stage in enumerate(self.stages):
-            x, hw_shape, out, out_hw_shape, error_quantization_blocks = stage(x, hw_shape)
+            x, hw_shape, out, out_hw_shape, delta_onehot_x, error_quantization_blocks, affinity_blocks, scale_blocks = stage(x, hw_shape, delta_onehot_x, labels)
             if i in self.out_indices:
                 norm_layer = getattr(self, f'norm{i}')
                 out = norm_layer(out)
@@ -1281,6 +1217,8 @@ class SwinTransformerVQ(BaseModule):
                 ).permute(0, 3, 1, 2).contiguous()
                 outs.append(out)
             error_quantization_stages.append(torch.stack(error_quantization_blocks))
+            affinity_stages.append(affinity_blocks)
+            scale_stages.append(scale_blocks)
         error_quantization = torch.concat(error_quantization_stages, dim=0)
 
-        return tuple(outs), error_quantization
+        return tuple(outs)

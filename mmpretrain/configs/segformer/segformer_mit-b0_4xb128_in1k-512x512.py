@@ -5,11 +5,10 @@ _base_ = [
     '../_base_/default_runtime.py'
 ]
 
-# 数据集配置
-data_root = '/mnt/ssd/hjf/ImageNet'
+# data setting
+data_root = 'path/to/ImageNet'
 num_gpus = 4
 batch_size_pergpu = 128
-accumulative_counts = 1
 
 train_dataloader = dict(
     batch_size=batch_size_pergpu, 
@@ -32,16 +31,15 @@ val_dataloader = dict(
 test_dataloader = val_dataloader
 
 
-# 模型配置
-checkpoint = '/home/hjf/workspace/mmpretrain/work_dirs/pretrained_in1k/03segformer/mit_b0_mmlab.pth'
+# model setting
+checkpoint = 'path/to/official/pre-trained/weight.pth'
 model = dict(
     type='ImageClassifier',
     backbone=dict(
         type='MixVisionTransformer',
-        # init_cfg=dict(type='Pretrained', checkpoint=checkpoint)
         embed_dims=32,
         num_layers=[2, 2, 2, 2],
-        num_heads=[1, 2, 5, 8],
+        num_heads=[1, 2, 4, 8],                 # [1, 2, 5, 8] -> [1, 2, 4, 8]
         patch_sizes=[7, 3, 3, 3],
         sr_ratios=[8, 4, 2, 1],
         out_indices=(3,),
@@ -50,13 +48,13 @@ model = dict(
         drop_rate=0.0,
         attn_drop_rate=0.0,
         drop_path_rate=0.1,
-        with_cp=False,                  # 开启梯度检查点以节省内存，仅降低训练速度
+        with_cp=False,                          # gradient checkpoint
     ),
     head=dict(
         type='LinearClsHead',
         num_classes=1000,
-        in_channels=256,                # embed_dims * num_heads[-1]
-        init_cfg=None,                  # suppress the default init_cfg of LinearClsHead.
+        in_channels=256,                        # embed_dims * num_heads[-1]
+        init_cfg=None,                          # suppress the default init_cfg of LinearClsHead.
         loss=dict(
             type='LabelSmoothLoss', 
             label_smooth_val=0.1, 
@@ -69,14 +67,13 @@ model = dict(
     ],
 )
 
-# 学习策略配置
+# optimization setting
 # for batch in each gpu is 128, 8 gpu
 # lr = 5e-4 * 128 * 8 / 512 = 0.001
 optim_wrapper = dict(
     optimizer=dict(
         type='AdamW',
-        # filter(lambda p: p.requires_grad, model.parameters()),
-        lr=1e-3 * num_gpus * batch_size_pergpu * accumulative_counts / 1024,    # 根据实际batch_size调整学习率
+        lr=1e-3 * num_gpus * batch_size_pergpu / 1024,
         weight_decay=0.05,
         eps=1e-8,
         betas=(0.9, 0.999)
@@ -87,10 +84,8 @@ optim_wrapper = dict(
         flat_decay_mult=0.0,
     ),
     clip_grad=dict(max_norm=5.0),
-    accumulative_counts=accumulative_counts                 # 梯度累积，实现大batch_size
 )
 
-# learning policy
 param_scheduler = [
     # warm up learning rate scheduler
     dict(
@@ -118,9 +113,6 @@ train_cfg = dict(
 )
 
 default_hooks = dict(
-    # 每 100 次迭代打印一次日志。
     logger=dict(type='LoggerHook', interval=100),
-    # 每隔interval个epoch保存一次权重
-    checkpoint=dict(type='CheckpointHook', interval=5
-    )
+    checkpoint=dict(type='CheckpointHook', interval=5)
 )

@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/models/nat.py',
+    '../_base_/models/segformer_mit-b0.py', 
     '../_base_/datasets/imagenet_bs64_swin_224.py',
     '../_base_/schedules/imagenet_bs1024_adamw_swin.py',
     '../_base_/default_runtime.py'
@@ -8,7 +8,7 @@ _base_ = [
 # data setting
 data_root = 'path/to/ImageNet'
 num_gpus = 4
-batch_size_pergpu = 64
+batch_size_pergpu = 128
 
 train_dataloader = dict(
     batch_size=batch_size_pergpu, 
@@ -36,37 +36,37 @@ checkpoint = 'path/to/official/pre-trained/weight.pth'
 model = dict(
     type='ImageClassifier',
     backbone=dict(
-        type='NATMod',
-        embed_dim=64,
-        mlp_ratio=3.0,
-        depths=[3, 4, 6, 5],
-        num_heads=[2, 4, 8, 16],
-        drop_path_rate=0.2,
-        kernel_size=7,
-        out_indices=(3, ),
+        type='MixVisionTransformerMod',
+        embed_dims=32,
+        num_layers=[2, 2, 2, 2],
+        num_heads=[1, 2, 4, 8],
+        patch_sizes=[7, 3, 3, 3],
+        sr_ratios=[8, 4, 2, 1],
+        out_indices=(3,),
+        mlp_ratio=4,
         qkv_bias=True,
         qk_scale=15.0,
-        with_cp=False,
+        drop_rate=0.0,
+        attn_drop_rate=0.0,
+        drop_path_rate=0.1,
+        with_cp=False,                          # gradient checkpoint
     ),
-    neck=dict(type='GlobalAveragePooling'),
     head=dict(
         type='LinearClsHead',
         num_classes=1000,
-        in_channels=512,
-        init_cfg=None,  # suppress the default init_cfg of LinearClsHead.
+        in_channels=256,                        # embed_dims * num_heads[-1]
+        init_cfg=None,                          # suppress the default init_cfg of LinearClsHead.
         loss=dict(
-            type='LabelSmoothLoss', label_smooth_val=0.1, mode='original'),
+            type='LabelSmoothLoss', 
+            label_smooth_val=0.1, 
+            mode='original'
+        ),
         cal_acc=False
     ),
     init_cfg=[
         dict(type='Pretrained', checkpoint=checkpoint)
     ],
-    train_cfg=dict(augments=[
-        dict(type='Mixup', alpha=0.8),
-        dict(type='CutMix', alpha=1.0)
-    ]),
 )
-
 
 # optimization setting
 # for batch in each gpu is 128, 8 gpu
@@ -74,16 +74,15 @@ model = dict(
 optim_wrapper = dict(
     optimizer=dict(
         type='AdamW',
-        lr=5e-4 * num_gpus * batch_size_pergpu / 512,
+        lr=1e-3 * num_gpus * batch_size_pergpu / 1024,
         weight_decay=0.05,
         eps=1e-8,
         betas=(0.9, 0.999)
     ),
     paramwise_cfg=dict(
-        custom_keys={
-            'rpb': dict(decay_mult=0.), 
-            'norm': dict(decay_mult=0.),
-        }
+        norm_decay_mult=0.0,
+        bias_decay_mult=0.0,
+        flat_decay_mult=0.0,
     ),
     clip_grad=dict(max_norm=5.0),
 )
@@ -117,5 +116,6 @@ train_cfg = dict(
 
 default_hooks = dict(
     logger=dict(type='LoggerHook', interval=100),
-    checkpoint=dict(type='CheckpointHook', interval=5)
+    checkpoint=dict(type='CheckpointHook', interval=5
+    )
 )

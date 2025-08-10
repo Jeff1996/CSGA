@@ -1,22 +1,3 @@
-'''
-架构说明: swin_debug_old_0104.py
-0. 使用迭代的聚类中心
-1. 使用动态量化码表，使用掩膜进行非极大值抑制，实现标准的k-means聚类(仅迭代1次)，构造聚类中心
-2. 
-3. 局部分支(WindowMSA)与量化全局分支(ClusterAttn)采用交替级联结构
-4. qk_scale = 15，主分支和聚类过程各引入了一个初始化为1的可学习缩放系数，qk使用余弦相似度（单位化点积），k矩阵下采样的得到的聚类中心需要重新单位化
-5. 全局分支引入相对位置编码
-
-训练结果: 
-    /home/hjf/workspace/mmpretrain/work_dirs/swin-tiny_debug_4xb64_in1k/20250105_174012/20250105_174012.log
-训练配置: 
-    50 epochs, 
-    batchsize 4 * 43 * 6 = 1032, 
-    stride(4*4), 
-    swin-t预训练权重
-top1: 80.626
-'''
-# Copyright (c) OpenMMLab. All rights reserved.
 import warnings
 from collections import OrderedDict
 from copy import deepcopy
@@ -38,13 +19,6 @@ from mmengine.utils import to_2tuple
 
 from mmpretrain.registry import MODELS
 from ..utils.embed_seg import PatchEmbed, PatchMerging
-# from ..utils.vqt_tools import reduce_sum
-
-# # Flash-Attneion 1.x
-# from flash_attn.flash_attn_interface import flash_attn_unpadded_func
-
-# # Flash-Attneion 2.x
-# from flash_attn import flash_attn_func
 
 # 分块注意力
 class WindowMSA(BaseModule):

@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/models/nat.py',
+    '../_base_/models/pvt.py',
     '../_base_/datasets/imagenet_bs64_swin_224.py',
     '../_base_/schedules/imagenet_bs1024_adamw_swin.py',
     '../_base_/default_runtime.py'
@@ -36,27 +36,20 @@ checkpoint = 'path/to/official/pre-trained/weight.pth'
 model = dict(
     type='ImageClassifier',
     backbone=dict(
-        type='NATMod',
-        embed_dim=64,
-        mlp_ratio=3.0,
-        depths=[3, 4, 6, 5],
-        num_heads=[2, 4, 8, 16],
-        drop_path_rate=0.2,
-        kernel_size=7,
+        type='pvt_tinyMod',
+        embed_dims=[64, 128, 256, 512], 
+        num_heads=[1, 2, 4, 8],
         out_indices=(3, ),
-        qkv_bias=True,
         qk_scale=15.0,
         with_cp=False,
     ),
-    neck=dict(type='GlobalAveragePooling'),
+    neck=None,
     head=dict(
-        type='LinearClsHead',
+        type='VisionTransformerClsHead',
         num_classes=1000,
         in_channels=512,
-        init_cfg=None,  # suppress the default init_cfg of LinearClsHead.
         loss=dict(
             type='LabelSmoothLoss', label_smooth_val=0.1, mode='original'),
-        cal_acc=False
     ),
     init_cfg=[
         dict(type='Pretrained', checkpoint=checkpoint)
@@ -64,7 +57,7 @@ model = dict(
     train_cfg=dict(augments=[
         dict(type='Mixup', alpha=0.8),
         dict(type='CutMix', alpha=1.0)
-    ]),
+    ])
 )
 
 
@@ -81,8 +74,8 @@ optim_wrapper = dict(
     ),
     paramwise_cfg=dict(
         custom_keys={
-            'rpb': dict(decay_mult=0.), 
             'norm': dict(decay_mult=0.),
+            'cls_token': dict(decay_mult=0.),
         }
     ),
     clip_grad=dict(max_norm=5.0),

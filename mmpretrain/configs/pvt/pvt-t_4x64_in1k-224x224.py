@@ -5,11 +5,10 @@ _base_ = [
     '../_base_/default_runtime.py'
 ]
 
-# 数据集配置（单卡）
-data_root = '/mnt/ssd/hjf/ImageNet'
+# data setting
+data_root = 'path/to/ImageNet'
 num_gpus = 4
 batch_size_pergpu = 64
-accumulative_counts = 1
 
 train_dataloader = dict(
     batch_size=batch_size_pergpu, 
@@ -31,16 +30,15 @@ val_dataloader = dict(
 
 test_dataloader = val_dataloader
 
-# dict_keys(['meta', 'state_dict'])，params['state_dict']为网络权重（骨干网络（backbone前缀）+分类头权重（head前缀））
-checkpoint = '/home/hjf/workspace/mmpretrain/work_dirs/pretrained_in1k/05pvt/pvt_tiny_mmpretrain_heads_1248.pth'
 
+# model setting
+checkpoint = 'path/to/official/pre-trained/weight.pth'
 model = dict(
     type='ImageClassifier',
     backbone=dict(
         type='pvt_tiny',
-        # init_cfg=dict(type='Pretrained', checkpoint=checkpoint, prefix='backbone.'),
         embed_dims=[64, 128, 256, 512], 
-        num_heads=[1, 2, 4, 8],             # 需要改成1248，以匹配聚类稀疏全局注意力对头数的要求
+        num_heads=[1, 2, 4, 8],                 # [1, 2, 5, 8] -> [1, 2, 4, 8]
         out_indices=(3, ),
         qk_scale=None,
         with_cp=False,
@@ -48,16 +46,11 @@ model = dict(
     neck=None,
     head=dict(
         type='VisionTransformerClsHead',
-        # init_cfg=dict(type='Pretrained', checkpoint=checkpoint, prefix='head.'),       # 新增
         num_classes=1000,
         in_channels=512,
         loss=dict(
             type='LabelSmoothLoss', label_smooth_val=0.1, mode='original'),
     ),
-    # init_cfg=[
-    #     dict(type='TruncNormal', layer='Linear', std=.02),
-    #     dict(type='Constant', layer='LayerNorm', val=1., bias=0.),
-    # ],
     init_cfg=[
         dict(type='Pretrained', checkpoint=checkpoint)
     ],
@@ -68,14 +61,13 @@ model = dict(
 )
 
 
-# 学习策略配置
+# optimization setting
 # for batch in each gpu is 128, 8 gpu
 # lr = 5e-4 * 128 * 8 / 512 = 0.001
 optim_wrapper = dict(
     optimizer=dict(
         type='AdamW',
-        lr=5e-4 * num_gpus * batch_size_pergpu * accumulative_counts / 512,
-        # lr = 4e-4 * num_gpus * batch_size_pergpu * accumulative_counts / 1024,    # 使用swin-t的预训练权重
+        lr=5e-4 * num_gpus * batch_size_pergpu / 512,
         weight_decay=0.05,
         eps=1e-8,
         betas=(0.9, 0.999)
@@ -87,7 +79,6 @@ optim_wrapper = dict(
         }
     ),
     clip_grad=dict(max_norm=5.0),
-    accumulative_counts=accumulative_counts                 # 梯度累积，实现大batch_size
 )
 
 # learning policy
@@ -118,30 +109,6 @@ train_cfg = dict(
 )
 
 default_hooks = dict(
-    # 每 100 次迭代打印一次日志。
     logger=dict(type='LoggerHook', interval=100),
-    # 每隔interval个epoch保存一次权重
     checkpoint=dict(type='CheckpointHook', interval=5)
 )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# 官方配置参数
-# cfg = dict(
-#     model='pvt_small',
-#     drop_path=0.1,
-#     clip_grad=None,
-#     output_dir='checkpoints/pvt_small',
-# )
