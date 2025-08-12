@@ -1,18 +1,21 @@
 _base_ = [
     '../_base_/models/segformer_mit-b0.py', 
-    '../_base_/datasets/ade20k.py',
+    '../_base_/datasets/cityscapes_512x512.py',
     '../_base_/default_runtime.py', 
-    '../_base_/schedules/schedule_160k.py'
+    '../_base_/schedules/schedule_40k.py'
 ]
 
 # data setting
-data_root = 'path/to/ade20k'
+data_root = 'path/to/cityscapes'
 crop_size = (512, 512)
 
 train_dataloader = dict(
-    batch_size=8,                               # 8 (batch size) * 2 (GPUS) = 16
+    batch_size=8, 
     dataset=dict(
         data_root=data_root,
+        data_prefix=dict(
+            img_path='image/train', seg_map_path='label/train'
+        ),
     )
 )
 
@@ -20,6 +23,9 @@ val_dataloader = dict(
     batch_size=1, 
     dataset=dict(
         data_root=data_root,
+        data_prefix=dict(
+            img_path='image/val', seg_map_path='label/val'
+        ),
     )
 )
 
@@ -31,9 +37,9 @@ data_preprocessor = dict(
 )
 checkpoint = 'path/to/ImageNet-1K/pre-trained/weight.pth'
 model = dict(
-    type='EncoderDecoder',
     init_cfg=dict(type='Pretrained', checkpoint=checkpoint),
     data_preprocessor=data_preprocessor,
+    type='EncoderDecoder',
     backbone=dict(
         type='MixVisionTransformerMod',
         embed_dims=32,
@@ -52,7 +58,7 @@ model = dict(
     ),
     decode_head=dict(
         in_channels=[32, 64, 128, 256],
-        num_classes=150,
+        num_classes=19,
     )
 )
 
@@ -86,17 +92,12 @@ param_scheduler = [
         eta_min=0.0,
         power=1.0,
         begin=1500,
-        end=160000,
+        end=40000,
         by_epoch=False,
     )
 ]
 
 train_cfg = dict(
-    max_iters=160000,
-    val_interval=16000
+    max_iters=40000,
+    val_interval=4000
 )
-
-
-# default_hooks = dict(
-#     visualization=dict(type='SegVisualizationHook', draw=True, interval=1)
-# )

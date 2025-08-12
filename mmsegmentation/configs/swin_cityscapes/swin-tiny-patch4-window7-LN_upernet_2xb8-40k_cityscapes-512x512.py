@@ -1,18 +1,21 @@
 _base_ = [
-    '../_base_/models/twins_pcpvt-s_upernet.py',
-    '../_base_/datasets/ade20k.py', 
-    '../_base_/default_runtime.py',
-    '../_base_/schedules/schedule_160k.py'
+    '../_base_/models/upernet_swin.py', 
+    '../_base_/datasets/cityscapes_512x512.py',
+    '../_base_/default_runtime.py', 
+    '../_base_/schedules/schedule_40k.py'
 ]
 
 # data setting
-data_root = 'path/to/ade20k'
+data_root = 'path/to/cityscapes'
 crop_size = (512, 512)
 
 train_dataloader = dict(
-    batch_size=8,                               # 8 (batch size) * 2 (GPUS) = 16
+    batch_size=8, 
     dataset=dict(
         data_root=data_root,
+        data_prefix=dict(
+            img_path='image/train', seg_map_path='label/train'
+        ),
     )
 )
 
@@ -20,6 +23,9 @@ val_dataloader = dict(
     batch_size=1, 
     dataset=dict(
         data_root=data_root,
+        data_prefix=dict(
+            img_path='image/val', seg_map_path='label/val'
+        ),
     )
 )
 
@@ -32,24 +38,25 @@ data_preprocessor = dict(
 checkpoint = 'path/to/ImageNet-1K/pre-trained/weight.pth'
 model = dict(
     type='EncoderDecoder',
-    init_cfg=dict(type='Pretrained', checkpoint=checkpoint),
     data_preprocessor=data_preprocessor,
     backbone=dict(
-        type='SVT',
-        embed_dims=[64, 128, 256, 512],
-        num_heads=[2, 4, 8, 16],
-        mlp_ratios=[4, 4, 4, 4],
-        depths=[2, 2, 10, 4],
-        windiow_sizes=[7, 7, 7, 7],
-        norm_after_stage=True
+        type='SwinTransformer',
+        init_cfg=dict(type='Pretrained', checkpoint=checkpoint, prefix='backbone.'),
+        embed_dims=96,
+        depths=[2, 2, 6, 2],
+        num_heads=[3, 6, 12, 24],
+        window_size=7,
+        use_abs_pos_embed=False,
+        drop_path_rate=0.3,   # 默认是0.3
+        patch_norm=True, 
     ),
     decode_head=dict(
-        in_channels=[64, 128, 256, 512],
-        num_classes=150,
+        in_channels=[96, 192, 384, 768], 
+        num_classes=19,
     ),
     auxiliary_head=dict(
-        in_channels=256,
-        num_classes=150,
+        in_channels=384, 
+        num_classes=19
     )
 )
 
@@ -65,7 +72,8 @@ optim_wrapper = dict(
     ),
     paramwise_cfg=dict(
         custom_keys={
-            'pos_block': dict(decay_mult=0.),
+            'absolute_pos_embed': dict(decay_mult=0.),
+            'relative_position_bias_table': dict(decay_mult=0.),
             'norm': dict(decay_mult=0.)
         }
     )
@@ -84,16 +92,12 @@ param_scheduler = [
         eta_min=0.0,
         power=1.0,
         begin=1500,
-        end=160000,
+        end=40000,
         by_epoch=False,
     )
 ]
 
 train_cfg = dict(
-    max_iters=160000,
-    val_interval=16000
+    max_iters=40000,
+    val_interval=4000
 )
-
-# default_hooks = dict(
-#     visualization=dict(type='SegVisualizationHook', draw=True, interval=1)
-# )

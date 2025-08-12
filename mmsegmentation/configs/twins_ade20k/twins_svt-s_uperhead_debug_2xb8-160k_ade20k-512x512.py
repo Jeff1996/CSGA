@@ -5,14 +5,12 @@ _base_ = [
     '../_base_/schedules/schedule_160k.py'
 ]
 
-# 数据集配置（单卡）
-data_root = '../00_datasets/ade20k'
+# data setting
+data_root = 'path/to/ade20k'
 crop_size = (512, 512)
 
-
 train_dataloader = dict(
-    batch_size=8,
-    num_workers=4, 
+    batch_size=8,                               # 8 (batch size) * 2 (GPUS) = 16
     dataset=dict(
         data_root=data_root,
     )
@@ -20,7 +18,6 @@ train_dataloader = dict(
 
 val_dataloader = dict(
     batch_size=1, 
-    num_workers=4,
     dataset=dict(
         data_root=data_root,
     )
@@ -28,21 +25,17 @@ val_dataloader = dict(
 
 test_dataloader = val_dataloader
 
-
-# 模型配置
+# model setting
 data_preprocessor = dict(
     size=crop_size
 )
-
-checkpoint = '/home/hjf/workspace/mmsegmentation/work_dirs/pretrained_in1k/07twins_debug/epoch_50_seg.pth'
-
+checkpoint = 'path/to/ImageNet-1K/pre-trained/weight.pth'
 model = dict(
     type='EncoderDecoder',
     init_cfg=dict(type='Pretrained', checkpoint=checkpoint),
     data_preprocessor=data_preprocessor,
     backbone=dict(
         type='SVTMod',
-        # init_cfg=dict(type='Pretrained', checkpoint=checkpoint, prefix='backbone.'),
         embed_dims=[64, 128, 256, 512],
         num_heads=[2, 4, 8, 16],
         mlp_ratios=[4, 4, 4, 4],
@@ -50,7 +43,7 @@ model = dict(
         windiow_sizes=[7, 7, 7, 7],
         norm_after_stage=True,
         qk_scale=15.0,
-        attn_type='clusterattn',
+        attn_type='csga',
         with_cp=False,
     ),
     decode_head=dict(
@@ -63,12 +56,13 @@ model = dict(
     )
 )
 
+# optimization setting
 optim_wrapper = dict(
     _delete_=True,
     type='OptimWrapper',
     optimizer=dict(
         type='AdamW', 
-        lr=0.00006,             # batch size = 16
+        lr=0.00006,                             # bs = 16
         betas=(0.9, 0.999), 
         weight_decay=0.01
     ),
@@ -99,12 +93,10 @@ param_scheduler = [
 ]
 
 train_cfg = dict(
-    max_iters=160000,       # 默认值
-    # max_iters=80000,
+    max_iters=160000,
     val_interval=16000
 )
 
-# 开启推理过程可视化
-default_hooks = dict(
-    visualization=dict(type='SegVisualizationHook', draw=True, interval=1)
-)
+# default_hooks = dict(
+#     visualization=dict(type='SegVisualizationHook', draw=True, interval=1)
+# )

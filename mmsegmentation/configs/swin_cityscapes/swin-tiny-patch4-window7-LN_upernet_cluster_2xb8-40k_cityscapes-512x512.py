@@ -5,13 +5,12 @@ _base_ = [
     '../_base_/schedules/schedule_40k.py'
 ]
 
-# 数据集配置（单卡）
-data_root = '../00_datasets/cityscapes'
+# data setting
+data_root = 'path/to/cityscapes'
 crop_size = (512, 512)
 
 train_dataloader = dict(
     batch_size=8, 
-    num_workers=4,
     dataset=dict(
         data_root=data_root,
         data_prefix=dict(
@@ -22,7 +21,6 @@ train_dataloader = dict(
 
 val_dataloader = dict(
     batch_size=1, 
-    num_workers=4,
     dataset=dict(
         data_root=data_root,
         data_prefix=dict(
@@ -31,32 +29,27 @@ val_dataloader = dict(
     )
 )
 
-
 test_dataloader = val_dataloader
 
-
-# 模型配置
-# backbone_norm_cfg = dict(type='IN1d', requires_grad=True)
+# model setting
 data_preprocessor = dict(
     size=crop_size
 )
-
-checkpoint_file = '/home/hjf/workspace/mmsegmentation/work_dirs/pretrained_in1k/08clusterformer/epoch_50.pth'
-
+checkpoint = 'path/to/ImageNet-1K/pre-trained/weight.pth'
 model = dict(
     type='EncoderDecoder',
     data_preprocessor=data_preprocessor,
     backbone=dict(
         type='SwinTransformerCluster',
-        init_cfg=dict(type='Pretrained', checkpoint=checkpoint_file, prefix='backbone.'),
+        init_cfg=dict(type='Pretrained', checkpoint=checkpoint, prefix='backbone.'),
         embed_dims=96,
         depths=[2, 2, 6, 2],
         num_heads=[3, 6, 12, 24],
         window_size=7,
         use_abs_pos_embed=False,
-        drop_path_rate=0.3,         # 默认是0.3
+        drop_path_rate=0.3,
         patch_norm=True, 
-        with_cp=True,              # 开启梯度检查点以节省内存，仅降低训练速度
+        with_cp=False,                          # gradient checkpoint
     ),
     decode_head=dict(
         in_channels=[96, 192, 384, 768], 
@@ -68,14 +61,13 @@ model = dict(
     )
 )
 
-# 学习策略配置
+# optimization setting
 optim_wrapper = dict(
     _delete_=True,
     type='OptimWrapper',
     optimizer=dict(
         type='AdamW', 
-        lr=0.00006,                 # 默认值，batch_size = 16
-        # lr=0.00003,         # 因为batch_size只能达到8，所以学习率减半
+        lr=0.00006,                             # bs = 16
         betas=(0.9, 0.999), 
         weight_decay=0.01
     ),
@@ -99,14 +91,14 @@ param_scheduler = [
     dict(
         type='PolyLR',
         eta_min=0.0,
-        power=1.0,          # 默认值
+        power=1.0,
         begin=1500,
-        end=40000,         # 默认值
+        end=40000,
         by_epoch=False,
     )
 ]
 
 train_cfg = dict(
-    max_iters=40000,       # 默认值
+    max_iters=40000,
     val_interval=4000
 )

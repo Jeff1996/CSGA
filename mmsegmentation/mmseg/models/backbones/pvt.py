@@ -9,9 +9,6 @@ from mmengine.utils import to_2tuple
 from mmengine.model.weight_init import (constant_init, trunc_normal_, trunc_normal_init)
 from mmseg.registry import MODELS
 
-# from mmseg.utils import get_root_logger
-# from mmcv.runner import load_checkpoint
-
 
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
@@ -269,16 +266,6 @@ class PyramidVisionTransformer(nn.Module):
                 outs.append(x)
 
         return outs
-
-# def _conv_filter(state_dict, patch_size=16):
-#     """ convert patch embedding weight from manual patchify + linear proj to conv"""
-#     out_dict = {}
-#     for k, v in state_dict.items():
-#         if 'patch_embed.proj.weight' in k:
-#             v = v.reshape((v.shape[0], 3, patch_size, patch_size))
-#         out_dict[k] = v
-#     return out_dict
-
 
 @MODELS.register_module()
 class pvt_tiny(PyramidVisionTransformer):

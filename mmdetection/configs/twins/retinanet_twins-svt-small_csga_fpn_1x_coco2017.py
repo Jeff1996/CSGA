@@ -57,7 +57,7 @@ model = dict(
         drop_path_rate=0.2,
 
         qk_scale=15.0,
-        attn_type='clusterattn',
+        attn_type='csga',
         with_cp=False,
     ),
     neck=dict(

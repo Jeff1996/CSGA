@@ -1,23 +1,3 @@
-'''
-架构说明: swin_debug_old_0104.py
-0. 使用迭代的聚类中心
-1. 使用动态量化码表，使用掩膜进行非极大值抑制，实现标准的k-means聚类(仅迭代1次)，构造聚类中心
-2. 
-3. 局部分支(WindowMSA)与量化全局分支(ClusterAttn)采用交替级联结构
-4. qk_scale = 15，主分支和聚类过程各引入了一个初始化为1的可学习缩放系数，qk使用余弦相似度（单位化点积），k矩阵下采样的得到的聚类中心需要重新单位化
-5. 全局分支引入相对位置编码
-
-训练结果: 
-
-/home/hjf/workspace/mmsegmentation/work_dirs/swin-tiny-patch4-window7-LN_upernet_2xb8-160k_ade20k-512x512/20250110_235458/20250110_235458.log
-
-训练配置: 
-    batchsize8, 160k, ade20k, 
-    stride(8*8), 
-    本架构,使用swin-t预训练权重在ImageNet-1K上训练50epoch -> epoch_50_stride4x4_单位化qk_聚类中心kv_80.806.pth
-mIoU: 43.75 -> 44.46
-'''
-# Copyright (c) OpenMMLab. All rights reserved.
 import warnings
 from collections import OrderedDict
 from copy import deepcopy
@@ -39,10 +19,6 @@ from mmengine.utils import to_2tuple
 
 from mmseg.registry import MODELS
 from ..utils.embed import PatchEmbed, PatchMerging
-# from ..utils.vqt_tools import reduce_sum
-
-# # 使用Flash-Attention 2.x的API
-# from flash_attn import flash_attn_func
 
 # 分块注意力
 class WindowMSA(BaseModule):
@@ -182,7 +158,7 @@ def pairwise_cos_sim(x1: torch.Tensor, x2:torch.Tensor):
     sim = torch.matmul(x1, x2.transpose(-2, -1))
     return sim
 
-# 聚类稀疏全局注意力
+# ClusterFormer
 class Clustering(nn.Module):
     def __init__(
         self, 

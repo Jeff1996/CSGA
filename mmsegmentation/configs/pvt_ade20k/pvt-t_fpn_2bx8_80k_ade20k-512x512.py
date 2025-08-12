@@ -5,10 +5,9 @@ _base_ = [
     '../_base_/schedules/schedule_80k.py'
 ]
 
-# 数据集配置（单卡）
-data_root = '../00_datasets/ade20k'
+# data setting
+data_root = 'path/to/ade20k'
 crop_size = (512, 512)
-
 
 train_dataloader = dict(
     batch_size=8, 
@@ -26,32 +25,23 @@ val_dataloader = dict(
 
 test_dataloader = val_dataloader
 
-
-# 模型配置
+# model setting
 data_preprocessor = dict(
     size=crop_size
 )
-
-checkpoint = '/home/hjf/workspace/mmsegmentation/work_dirs/pretrained_in1k/05pvt/epoch_50.pth'
-# checkpoint = '/home/hjf/workspace/mmsegmentation/work_dirs/pretrained_in1k/05pvt/epoch_50_img_size_512x512.pth'
-
+checkpoint = 'path/to/ImageNet-1K/pre-trained/weight.pth'
 model = dict(
     type='EncoderDecoder',
-    # pretrained='pretrained/pvt_tiny.pth',
-    # pretrained='https://github.com/whai362/PVT/releases/download/v2/pvt_tiny.pth',
     init_cfg=dict(type='Pretrained', checkpoint=checkpoint),
-
     data_preprocessor=data_preprocessor,
     backbone=dict(
         type='pvt_tiny',
-        # init_cfg=dict(type='Pretrained', checkpoint=checkpoint, prefix='backbone.'),  # 模型编写时没有使用mmsegmentation的基类，所以这样加载权重是无效的
-        # img_size=512,                     # 这里本来应该是模型训练时的标准图片尺寸，会影响位置编码的构造，但是由于pvt中没有处理预训练模型与当前模型的位置编码长度差异，所以暂时就用ImageNet-1K预训练时的图片尺寸224
         patch_size=4,
         embed_dims=[64, 128, 256, 512], 
-        num_heads=[1, 2, 4, 8],             # 需要改成1248，以匹配聚类稀疏全局注意力对头数的要求
+        num_heads=[1, 2, 4, 8],                 # [1, 2, 5, 8] -> [1, 2, 4, 8]
         out_indices=(0, 1, 2, 3),
         qk_scale=None,
-        with_cp=False,
+        with_cp=False,                          # gradient checkpoint
     ),
     neck=dict(
         in_channels=[64, 128, 256, 512]
@@ -61,13 +51,13 @@ model = dict(
     )
 )
 
-# 学习策略配置
+# optimization setting
 optim_wrapper = dict(
     _delete_=True,
     type='OptimWrapper',
     optimizer = dict(
         type='AdamW', 
-        lr=0.0001,              # batch size = 16
+        lr=0.0001,                              # bs = 16
         weight_decay=0.0001
     )
 )
@@ -88,7 +78,6 @@ train_cfg = dict(
     val_interval=8000
 )
 
-# 开启推理过程可视化
-default_hooks = dict(
-    visualization=dict(type='SegVisualizationHook', draw=True, interval=1)
-)
+# default_hooks = dict(
+#     visualization=dict(type='SegVisualizationHook', draw=True, interval=1)
+# )

@@ -5,12 +5,12 @@ _base_ = [
     '../_base_/schedules/schedule_160k.py'
 ]
 
-# 数据集配置（单卡）
-data_root = '../00_datasets/ade20k'
+# data setting
+data_root = 'path/to/ade20k'
 crop_size = (512, 512)
 
 train_dataloader = dict(
-    batch_size=8, 
+    batch_size=8,                               # 8 (batch size) * 2 (GPUS) = 16
     dataset=dict(
         data_root=data_root,
     )
@@ -25,30 +25,26 @@ val_dataloader = dict(
 
 test_dataloader = val_dataloader
 
-
-# 模型配置
-# backbone_norm_cfg = dict(type='IN1d', requires_grad=True)
+# model setting
 data_preprocessor = dict(
     size=crop_size
 )
-
-checkpoint_file = '/home/hjf/workspace/mmsegmentation/work_dirs/pretrained_in1k/04swin_debug/epoch_50.pth'
-
+checkpoint = 'path/to/ImageNet-1K/pre-trained/weight.pth'
 model = dict(
     type='EncoderDecoder',
     data_preprocessor=data_preprocessor,
     backbone=dict(
         type='SwinTransformerMod',
-        init_cfg=dict(type='Pretrained', checkpoint=checkpoint_file, prefix='backbone.'),
+        init_cfg=dict(type='Pretrained', checkpoint=checkpoint, prefix='backbone.'),
         embed_dims=96,
         depths=[2, 2, 6, 2],
         num_heads=[3, 6, 12, 24],
         window_size=7,
         use_abs_pos_embed=False,
-        qk_scale=15.0,              # 根据实际训练结果，初始值由30.0下调至15.0
-        drop_path_rate=0.3,         # 默认是0.3
+        qk_scale=15.0,
+        drop_path_rate=0.3,
         patch_norm=True, 
-        with_cp=True,              # 开启梯度检查点以节省内存，仅降低训练速度
+        with_cp=False,
     ),
     decode_head=dict(
         in_channels=[96, 192, 384, 768], 
@@ -60,14 +56,13 @@ model = dict(
     )
 )
 
-# 学习策略配置
+# optimization setting
 optim_wrapper = dict(
     _delete_=True,
     type='OptimWrapper',
     optimizer=dict(
         type='AdamW', 
-        lr=0.00006,                 # 默认值，batch_size = 16
-        # lr=0.00003,         # 因为batch_size只能达到8，所以学习率减半
+        lr=0.00006,                             # bs = 16
         betas=(0.9, 0.999), 
         weight_decay=0.01
     ),
@@ -91,20 +86,18 @@ param_scheduler = [
     dict(
         type='PolyLR',
         eta_min=0.0,
-        power=1.0,          # 默认值
+        power=1.0, 
         begin=1500,
-        end=160000,         # 默认值
+        end=160000, 
         by_epoch=False,
     )
 ]
 
 train_cfg = dict(
-    max_iters=160000,       # 默认值
-    # max_iters=80000,
+    max_iters=160000, 
     val_interval=16000
 )
 
-# 开启推理过程可视化
-default_hooks = dict(
-    visualization=dict(type='SegVisualizationHook', draw=True, interval=1)
-)
+# default_hooks = dict(
+#     visualization=dict(type='SegVisualizationHook', draw=True, interval=1)
+# )

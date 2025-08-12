@@ -1,11 +1,3 @@
-"""
-Neighborhood Attention Transformer.
-To appear in CVPR 2023.
-https://arxiv.org/abs/2204.07143
-
-This source code is licensed under the license found in the
-LICENSE file in the root directory of this source tree.
-"""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -13,7 +5,7 @@ import torch.utils.checkpoint as cp
 from mmcv.cnn.bricks.transformer import FFN, build_dropout
 from mmengine.runner import CheckpointLoader
 
-from mmdet.registry import MODELS
+from mmseg.registry import MODELS
 from natten import NeighborhoodAttention2D as NeighborhoodAttention
 
 iterations = 1      # k-means聚类次数
@@ -334,37 +326,9 @@ class CSGA(nn.Module):
 
         delta_onehot_x = delta_onehot.transpose(-2, -1).reshape(-1, L_, H, W)
 
-        # # 量化损失计算(会带来负面影响，导致scale系数很大)
-        # k_hat = torch.einsum('bhlm,bhmd->bhld', delta_onehot, c)
-        # # L2范数量化损失度量
-        # error_quantization = torch.norm(k - k_hat, dim=-1).square().mean()
-        # # 余弦相似度量化损失度量
-        # error_quantization = (1 - torch.einsum('bhld,bhmd->bhlm', k, k_hat)).mean()
+        # 量化损失计算(会带来负面影响，导致scale系数很大)
+
         error_quantization = torch.tensor(0.0, device=x.device)
-
-        # # [batch_size, num_heads, L, L']
-        # qcT = torch.einsum('bhld,bhmd->bhlm', q, c)
-        # if not relative_position_bias is None:
-        #     qcT = qcT + relative_position_bias
-        # qcT = qcT - qcT.max(dim=-1, keepdim=True)[0]
-        # qcT_exp = torch.exp(qcT)
-
-        # # 计算softmax分子
-        # # [batch_size, num_heads, L', head_embed_dims]
-        # deltaTv = torch.einsum('bhlm,bhld->bhmd', delta_onehot, v)
-        # # [batch_size, num_heads, L, head_embed_dims]
-        # numerator = torch.einsum('bhlm,bhmd->bhld', qcT_exp, deltaTv)
-        # # 计算softmax分母
-        # # [batch_size, num_heads, L']
-        # deltaT1 = torch.einsum('bhlm->bhm', delta_onehot)
-        # # [batch_size, num_heads, L, 1]
-        # denominator = torch.einsum('bhlm,bhm->bhl', qcT_exp, deltaT1).unsqueeze(-1)
-        # denominator[denominator==0] = 1e-6                              # 防止除以0
-
-        # # 计算注意力加权的v
-        # # [batch_size, num_heads, L, head_embed_dims]
-        # x = numerator / denominator
-        # x = x.transpose(1, 2).reshape(batch_size, H, W, C)
 
         c_v = torch.einsum('bhlm,bhld->bhmd', delta_onehot, v)
         delta_onehot_sum = torch.sum(delta_onehot, dim=-2).unsqueeze(-1)
@@ -373,39 +337,15 @@ class CSGA(nn.Module):
 
         # 慢速
         attn = (q @ c_k.transpose(-2, -1))                                  # [batch_size, num_heads, L, L']
-        # if not relative_position_bias is None:
-        #     attn = attn + relative_position_bias
         attn = self.softmax(attn)
         attn = self.attn_drop(attn)
         x = (attn @ c_v).transpose(1, 2).reshape(batch_size, H, W, C)
-
-        # # 使用Flash-Attention 1.x的API
-        # q = q.transpose(1, 2).reshape(batch_size*L, self.num_heads, C // self.num_heads).half()
-        # c_k = c_k.transpose(1, 2).reshape(batch_size*L_, self.num_heads, C // self.num_heads).half()
-        # c_v = c_v.transpose(1, 2).reshape(batch_size*L_, self.num_heads, C // self.num_heads).half()
-        # cu_seqlens_q = torch.arange(0, (batch_size + 1) * L, step=L, dtype=torch.int32, device=q.device)
-        # cu_seqlens_kv = torch.arange(0, (batch_size + 1) * L_, step=L_, dtype=torch.int32, device=q.device)
-        # x = flash_attn_unpadded_func(
-        #     q, c_k, c_v, 
-        #     cu_seqlens_q=cu_seqlens_q, cu_seqlens_k=cu_seqlens_kv, 
-        #     max_seqlen_q=L, max_seqlen_k=L_, 
-        #     dropout_p=self.attn_drop_rate if self.training else 0.0, 
-        #     softmax_scale=1.0
-        # ).reshape(batch_size, H, W, C).float()
-
-        # # 使用Flash-Attention 2.x的API
-        # q = q.transpose(1, 2).half()       # [batch_size, L, num_heads, head_embed_dims]
-        # c_k = c_k.transpose(1, 2).half()   # [batch_size, L_, num_heads, head_embed_dims]
-        # c_v = c_v.transpose(1, 2).half()   # [batch_size, L_, num_heads, head_embed_dims]
-        # x = flash_attn_func(q, c_k, c_v, dropout_p=self.attn_drop_rate if self.training else 0.0, softmax_scale=1.0)  # [batch_size, L, num_heads, head_embed_dims]
-        # x = x.reshape(batch_size, H, W, C).float()
 
         x = self.proj(x)
         x = self.proj_drop(x)
 
         x = self.out_drop(x)
 
-        # return x, delta_onehot_x, error_quantization, affinity, scale
         return x, delta_onehot_x
 
 # 在这里切换nat和聚类稀疏全局注意力
