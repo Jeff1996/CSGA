@@ -46,10 +46,10 @@ CUDA_VISIBLE_DEVICES=0,1 PORT=29532 bash tools/dist_test.sh path/to/the/config_f
 cd mmdetection
 
 ## Modify the configuration file
-mmdetection\configs\segformer\retinanet_segformer_mit-b0_csga_fpn_1x_coco2017.py
+mmdetection/configs/segformer/retinanet_segformer_mit-b0_csga_fpn_1x_coco2017.py
 
 ## Check the source code
-mmdetection\mmdet\models\backbones\mit_debug.py
+mmdetection/mmdet/models/backbones/mit_debug.py
 
 ## Train
 CUDA_VISIBLE_DEVICES=0,1 PORT=29531 bash tools/dist_train.sh path/to/the/config_file.py 2
