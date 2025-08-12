@@ -5,8 +5,8 @@ _base_ = [
     '../_base_/default_runtime.py'
 ]
 
-# 数据集配置（单卡）
-data_root = '../00_datasets/coco/2017/'
+# data setting
+data_root = 'path/to/coco/'
 num_gpus = 2
 batch_size_pergpu = 4
 
@@ -31,14 +31,13 @@ val_evaluator = dict(
 )
 test_evaluator = val_evaluator
 
-# 模型配置
-# dict_keys(['meta', 'state_dict'])，params['state_dict']为网络权重（骨干网络（backbone前缀）+分类头权重（head前缀））
-checkpoint = '/home/hjf/workspace/mmdetection/work_dirs/pretrained_in1k/06nat/epoch_50.pth'
 
+# model setting
+checkpoint = 'path/to/ImageNet-1K/pre-trained/weight.pth'
 model = dict(
     type='RetinaNet',
     backbone=dict(
-        _delete_=True,                          # 将 _base_ 中关于 backbone 的字段删除
+        _delete_=True,
         type='NAT',
         embed_dim=64,
         mlp_ratio=3.0,
@@ -62,8 +61,7 @@ model = dict(
 )
 
 
-# 学习策略配置
-# optimizer
+# optimization setting
 optim_wrapper = dict(
     optimizer=dict(
         lr=0.01 * num_gpus * batch_size_pergpu / 16,
@@ -76,7 +74,5 @@ train_cfg = dict(
 )
 
 default_hooks = dict(
-    # 每隔interval个epoch保存一次权重
-    checkpoint=dict(type='CheckpointHook', interval=2
-    )
+    checkpoint=dict(type='CheckpointHook', interval=1)
 )

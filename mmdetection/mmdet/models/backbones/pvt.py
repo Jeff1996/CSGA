@@ -7,11 +7,8 @@ from functools import partial
 from mmcv.cnn.bricks.transformer import build_dropout
 from mmengine.utils import to_2tuple
 from mmengine.model.weight_init import (constant_init, trunc_normal_, trunc_normal_init)
+
 from mmdet.registry import MODELS
-
-# from mmseg.utils import get_root_logger
-# from mmcv.runner import load_checkpoint
-
 
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):

@@ -18,7 +18,7 @@ train_dataloader = dict(
     )
 )
 val_dataloader = dict(
-    batch_size=batch_size_pergpu, 
+    batch_size=batch_size_pergpu//2, 
     num_workers=4, 
     dataset=dict(
         data_root=data_root,
@@ -37,30 +37,30 @@ checkpoint = 'path/to/ImageNet-1K/pre-trained/weight.pth'
 model = dict(
     backbone=dict(
         _delete_=True,
-        type='SVTMod',
-        in_channels=3,
-        embed_dims=[64, 128, 256, 512],
-        num_heads=[2, 4, 8, 16],
-        patch_sizes=[4, 2, 2, 2],
-        strides=[4, 2, 2, 2],
-        mlp_ratios=[4, 4, 4, 4],
-        windiow_sizes=[7, 7, 7, 7],
-        out_indices=(1, 2, 3),
+        type='SwinTransformerMod',
+        embed_dims=96,
+        depths=[2, 2, 6, 2],
+        num_heads=[3, 6, 12, 24],
+        window_size=7,
+        mlp_ratio=4,
         qkv_bias=True,
-        norm_cfg=dict(type='LN'),
-        depths=[2, 2, 10, 4],
-        sr_ratios=[8, 4, 2, 1],
-        norm_after_stage=True,
-        drop_rate=0.0,
+        qk_scale=15.0,
+        drop_rate=0.,
+        stride_cluster=(16, 16),
         attn_drop_rate=0.,
         drop_path_rate=0.2,
-
-        qk_scale=15.0,
-        attn_type='csga',
+        patch_norm=True,
+        out_indices=(1, 2, 3),
+        # Please only add indices that would be used
+        # in FPN, otherwise some parameter will not be used
         with_cp=False,
+        # init_cfg=dict(
+        #     type='Pretrained', 
+        #     checkpoint=pretrained
+        # )
     ),
     neck=dict(
-        in_channels=[128, 256, 512],
+        in_channels=[192, 384, 768], 
         start_level=0, 
         num_outs=5
     ),

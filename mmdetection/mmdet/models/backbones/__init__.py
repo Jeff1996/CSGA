@@ -14,7 +14,7 @@ from .resnest import ResNeSt
 from .resnet import ResNet, ResNetV1d
 from .resnext import ResNeXt
 from .ssd_vgg import SSDVGG
-from .swin import SwinTransformer
+# from .swin import SwinTransformer
 from .trident_resnet import TridentResNet
 
 from .mit import MixVisionTransformer           # 新增，来自mmpretrain
@@ -30,6 +30,11 @@ from .pvt_debug import pvt_tinyMod, pvt_smallMod, pvt_mediumMod, pvt_largeMod
 from .nat import NAT                            # 新增，来自mmsegmentation
 from .nat_debug import NATMod                   # 新增，来自mmsegmentation
 
+from .swin import SwinTransformer               # 新增，来自mmsegmentation
+from .swin_debug import SwinTransformerMod      # 新增，来自mmsegmentation
+from .swin_cluster import SwinTransformerCluster# 新增，来自mmsegmentation
+from .swin_vq import SwinTransformerVQ          # 新增，来自mmsegmentation
+
 from .twins import PCPVT, SVT                   # 新增，来自mmsegmentation
 from .twins_debug import PCPVTMod, SVTMod       # 新增，来自mmsegmentation
 
@@ -38,7 +43,7 @@ __all__ = [
     'RegNet', 'ResNet', 'ResNetV1d', 'ResNeXt', 'SSDVGG', 'HRNet',
     'MobileNetV2', 'Res2Net', 'HourglassNet', 'DetectoRS_ResNet',
     'DetectoRS_ResNeXt', 'Darknet', 'ResNeSt', 'TridentResNet', 'CSPDarknet',
-    'SwinTransformer', 'EfficientNet', 'CSPNeXt', 
+    'EfficientNet', 'CSPNeXt', 
 
     'MixVisionTransformer',                     # segformer
     'MixVisionTransformerMod',                  # segformer + csga
@@ -52,6 +57,11 @@ __all__ = [
     'pvt_smallMod', 
     'pvt_mediumMod', 
     'pvt_largeMod',
+
+    'SwinTransformer',                          # swin
+    'SwinTransformerMod',
+    'SwinTransformerCluster',
+    'SwinTransformerVQ',
 
     'NAT',                                      # nat
     'NATMod',                                   # nat_debug

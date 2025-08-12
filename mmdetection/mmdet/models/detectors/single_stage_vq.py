@@ -10,23 +10,27 @@ from .base import BaseDetector
 
 
 @MODELS.register_module()
-class SingleStageDetector(BaseDetector):
+class SingleStageDetectorVQ(BaseDetector):
     """Base class for single-stage detectors.
 
     Single-stage detectors directly and densely predict bounding boxes on the
     output features of the backbone+neck.
     """
 
-    def __init__(self,
-                 backbone: ConfigType,
-                 neck: OptConfigType = None,
-                 bbox_head: OptConfigType = None,
-                 train_cfg: OptConfigType = None,
-                 test_cfg: OptConfigType = None,
-                 data_preprocessor: OptConfigType = None,
-                 init_cfg: OptMultiConfig = None) -> None:
+    def __init__(
+        self,
+        backbone: ConfigType,
+        neck: OptConfigType = None,
+        bbox_head: OptConfigType = None,
+        train_cfg: OptConfigType = None,
+        test_cfg: OptConfigType = None,
+        data_preprocessor: OptConfigType = None,
+        init_cfg: OptMultiConfig = None
+    ) -> None:
         super().__init__(
-            data_preprocessor=data_preprocessor, init_cfg=init_cfg)
+            data_preprocessor=data_preprocessor, 
+            init_cfg=init_cfg
+        )
         self.backbone = MODELS.build(backbone)
         if neck is not None:
             self.neck = MODELS.build(neck)
@@ -36,11 +40,16 @@ class SingleStageDetector(BaseDetector):
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
 
-    def _load_from_state_dict(self, state_dict: dict, prefix: str,
-                              local_metadata: dict, strict: bool,
-                              missing_keys: Union[List[str], str],
-                              unexpected_keys: Union[List[str], str],
-                              error_msgs: Union[List[str], str]) -> None:
+    def _load_from_state_dict(
+        self, 
+        state_dict: dict, 
+        prefix: str, 
+        local_metadata: dict, 
+        strict: bool, 
+        missing_keys: Union[List[str], str], 
+        unexpected_keys: Union[List[str], str], 
+        error_msgs: Union[List[str], str]
+    ) -> None:
         """Exchange bbox_head key to rpn_head key when loading two-stage
         weights into single-stage model."""
         bbox_head_prefix = prefix + '.bbox_head' if prefix else 'bbox_head'
@@ -74,14 +83,27 @@ class SingleStageDetector(BaseDetector):
         Returns:
             dict: A dictionary of loss components.
         """
-        x = self.extract_feat(batch_inputs)
+        x, error_quantization = self.extract_feat(batch_inputs)
         losses = self.bbox_head.loss(x, batch_data_samples)
+        # 量化损失
+        loss_weight_quantization = 0.01
+        loss_quantization = {'backbone.loss_quantization': error_quantization.sum() * loss_weight_quantization} # 获取骨干网络的量化损失
+        losses.update(loss_quantization)
+
+        # print('-----------------------------------------')
+        # print('{}: {}\n'.format('error_quantization', error_quantization))
+        # print('{}: {}\n'.format('losses', losses))
+        # print('-----------------------------------------')
+        # exit(0)
+        
         return losses
 
-    def predict(self,
-                batch_inputs: Tensor,
-                batch_data_samples: SampleList,
-                rescale: bool = True) -> SampleList:
+    def predict(
+        self,
+        batch_inputs: Tensor,
+        batch_data_samples: SampleList,
+        rescale: bool = True
+    ) -> SampleList:
         """Predict results from a batch of inputs and data samples with post-
         processing.
 
@@ -106,17 +128,16 @@ class SingleStageDetector(BaseDetector):
                 - bboxes (Tensor): Has a shape (num_instances, 4),
                     the last dimension 4 arrange as (x1, y1, x2, y2).
         """
-        x = self.extract_feat(batch_inputs)
-        results_list = self.bbox_head.predict(
-            x, batch_data_samples, rescale=rescale)
-        batch_data_samples = self.add_pred_to_datasample(
-            batch_data_samples, results_list)
+        x, _ = self.extract_feat(batch_inputs)
+        results_list = self.bbox_head.predict(x, batch_data_samples, rescale=rescale)
+        batch_data_samples = self.add_pred_to_datasample(batch_data_samples, results_list)
         return batch_data_samples
 
     def _forward(
-            self,
-            batch_inputs: Tensor,
-            batch_data_samples: OptSampleList = None) -> Tuple[List[Tensor]]:
+        self,
+        batch_inputs: Tensor,
+        batch_data_samples: OptSampleList = None
+    ) -> Tuple[List[Tensor]]:
         """Network forward process. Usually includes backbone, neck and head
         forward without any post-processing.
 
@@ -129,7 +150,7 @@ class SingleStageDetector(BaseDetector):
         Returns:
             tuple[list]: A tuple of features from ``bbox_head`` forward.
         """
-        x = self.extract_feat(batch_inputs)
+        x, _ = self.extract_feat(batch_inputs)
         results = self.bbox_head.forward(x)
         return results
 
@@ -143,9 +164,7 @@ class SingleStageDetector(BaseDetector):
             tuple[Tensor]: Multi-level features that may have
             different resolutions.
         """
-        # print(batch_inputs.shape)
-        # exit(0)
-        x = self.backbone(batch_inputs)
+        x, error_quantization = self.backbone(batch_inputs)
         if self.with_neck:
             x = self.neck(x)
-        return x
+        return x, error_quantization

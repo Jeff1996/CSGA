@@ -59,6 +59,11 @@ from .yolo import YOLOV3
 from .yolof import YOLOF
 from .yolox import YOLOX
 
+from .retinanet_vq import RetinaNetVQ           # 新增，为Swin+Transformer-VQ准备的检测头
+from .single_stage_vq import SingleStageDetectorVQ
+                                                # 新增，为Swin+Transformer-VQ准备的检测头基类
+
+
 __all__ = [
     'ATSS', 'BaseDetector', 'SingleStageDetector', 'TwoStageDetector', 'RPN',
     'KnowledgeDistillationSingleStageDetector', 'FastRCNN', 'FasterRCNN',
@@ -71,5 +76,8 @@ __all__ = [
     'MaskFormer', 'DDOD', 'Mask2Former', 'SemiBaseDetector', 'SoftTeacher',
     'RTMDet', 'Detectron2Wrapper', 'CrowdDet', 'CondInst', 'BoxInst',
     'DetectionTransformer', 'ConditionalDETR', 'DINO', 'DABDETR', 'GLIP',
-    'DDQDETR', 'GroundingDINO'
+    'DDQDETR', 'GroundingDINO',
+
+    'RetinaNetVQ',                              # 新增
+    'SingleStageDetectorVQ',                    # 新增
 ]

@@ -5,8 +5,8 @@ _base_ = [
     '../_base_/default_runtime.py'
 ]
 
-# 数据集配置（单卡）
-data_root = '../00_datasets/coco/2017/'
+# data setting
+data_root = 'path/to/coco/'
 num_gpus = 2
 batch_size_pergpu = 4
 
@@ -18,7 +18,7 @@ train_dataloader = dict(
     )
 )
 val_dataloader = dict(
-    batch_size=batch_size_pergpu//2, 
+    batch_size=batch_size_pergpu, 
     num_workers=4, 
     dataset=dict(
         data_root=data_root,
@@ -31,10 +31,9 @@ val_evaluator = dict(
 )
 test_evaluator = val_evaluator
 
-# 模型配置
-# pretrained = 'https://github.com/SwinTransformer/storage/releases/download/v1.0.0/swin_tiny_patch4_window7_224.pth'  # noqa
-checkpoint = '/home/hjf/workspace/mmdetection/work_dirs/pretrained_in1k/04swin/epoch_50.pth'
 
+# model setting
+checkpoint = 'path/to/ImageNet-1K/pre-trained/weight.pth'
 model = dict(
     backbone=dict(
         _delete_=True,
@@ -69,8 +68,7 @@ model = dict(
     ],
 )
 
-# 学习策略配置
-# optimizer
+# optimization setting
 optim_wrapper = dict(
     optimizer=dict(
         lr=0.01 * num_gpus * batch_size_pergpu / 16,
@@ -83,7 +81,5 @@ train_cfg = dict(
 )
 
 default_hooks = dict(
-    # 每隔interval个epoch保存一次权重
-    checkpoint=dict(type='CheckpointHook', interval=1
-    )
+    checkpoint=dict(type='CheckpointHook', interval=1)
 )

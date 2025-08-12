@@ -1,7 +1,7 @@
 # CSGA
 The implementation code of the paper "Enhancing Local Attention with Global Information Interaction via Progressive Cluster Propagation".
 
-# Environment Configurations
+# 0. Environment Configurations
 Please refer to:
 
 mmpretrain: https://github.com/open-mmlab/MMPreTrain?tab=readme-ov-file
@@ -43,5 +43,16 @@ CUDA_VISIBLE_DEVICES=0,1 PORT=29531 bash tools/dist_train.sh path/to/the/config_
 CUDA_VISIBLE_DEVICES=0,1 PORT=29532 bash tools/dist_test.sh path/to/the/config_file.py path/to/the/weights.pth 2
 
 # 3. Detection
+cd mmdetection
 
-##
+## Modify the configuration file
+mmdetection\configs\segformer\retinanet_segformer_mit-b0_csga_fpn_1x_coco2017.py
+
+## Check the source code
+mmdetection\mmdet\models\backbones\mit_debug.py
+
+## Train
+CUDA_VISIBLE_DEVICES=0,1 PORT=29531 bash tools/dist_train.sh path/to/the/config_file.py 2
+
+## Test
+CUDA_VISIBLE_DEVICES=0,1 PORT=29532 bash tools/dist_test.sh path/to/the/config_file.py path/to/the/weights.pth 2

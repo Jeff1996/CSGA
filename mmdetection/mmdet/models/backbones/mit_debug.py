@@ -14,12 +14,6 @@ from mmengine.model.weight_init import (constant_init, normal_init, trunc_normal
 
 from mmdet.registry import MODELS
 
-# # Flash-Attneion 1.x
-# from flash_attn.flash_attn_interface import flash_attn_unpadded_func
-
-# # Flash-Attneion 2.x
-# from flash_attn import flash_attn_func
-
 iterations = 1      # k-means聚类次数
 
 def nlc_to_nchw(x, hw_shape):
@@ -281,7 +275,7 @@ class Cluster(nn.Module):
         delta_onehot, c, relative_position_bias, affinity_aux, scale = self.getCenter(x, delta_onehot_x)
         return delta_onehot, c, relative_position_bias, affinity_aux, scale
 
-# 基于聚类的量化注意力
+
 class CSGA(nn.Module):
     """Window based multi-head self-attention (W-MSA) module with relative
     position bias.
@@ -325,13 +319,13 @@ class CSGA(nn.Module):
         # 实例化聚类器
         self.cluster = Cluster(iterations, head_embed_dims, qk_scale)
         
-        # self.attn_drop = nn.Dropout(attn_drop_rate)
         self.attn_drop_rate = attn_drop_rate
 
         self.proj = nn.Linear(embed_dims, embed_dims)
         self.proj_drop = nn.Dropout(proj_drop_rate)
 
         self.softmax = nn.Softmax(dim=-1)
+        self.attn_drop = nn.Dropout(attn_drop_rate)
         
         self.out_drop = build_dropout(dropout_layer)
     # def init_weights(self):
@@ -377,37 +371,8 @@ class CSGA(nn.Module):
 
         delta_onehot_x = delta_onehot.transpose(-2, -1).reshape(-1, L_, H, W)
 
-        # # 量化损失计算(会带来负面影响，导致scale系数很大)
-        # k_hat = torch.einsum('bhlm,bhmd->bhld', delta_onehot, c)
-        # # L2范数量化损失度量
-        # error_quantization = torch.norm(k - k_hat, dim=-1).square().mean()
-        # # 余弦相似度量化损失度量
-        # error_quantization = (1 - torch.einsum('bhld,bhmd->bhlm', k, k_hat)).mean()
+        # 量化损失计算(会带来负面影响，导致scale系数很大)
         error_quantization = torch.tensor(0.0, device=x.device)
-
-        # # [batch_size, num_heads, L, L']
-        # qcT = torch.einsum('bhld,bhmd->bhlm', q, c)
-        # if not relative_position_bias is None:
-        #     qcT = qcT + relative_position_bias
-        # qcT = qcT - qcT.max(dim=-1, keepdim=True)[0]
-        # qcT_exp = torch.exp(qcT)
-
-        # # 计算softmax分子
-        # # [batch_size, num_heads, L', head_embed_dims]
-        # deltaTv = torch.einsum('bhlm,bhld->bhmd', delta_onehot, v)
-        # # [batch_size, num_heads, L, head_embed_dims]
-        # numerator = torch.einsum('bhlm,bhmd->bhld', qcT_exp, deltaTv)
-        # # 计算softmax分母
-        # # [batch_size, num_heads, L']
-        # deltaT1 = torch.einsum('bhlm->bhm', delta_onehot)
-        # # [batch_size, num_heads, L, 1]
-        # denominator = torch.einsum('bhlm,bhm->bhl', qcT_exp, deltaT1).unsqueeze(-1)
-        # denominator[denominator==0] = 1e-6                              # 防止除以0
-
-        # # 计算注意力加权的v
-        # # [batch_size, num_heads, L, head_embed_dims]
-        # x = numerator / denominator
-        # x = x.transpose(1, 2).reshape(batch_size, H, W, C)
 
         c_v = torch.einsum('bhlm,bhld->bhmd', delta_onehot, v)
         delta_onehot_sum = torch.sum(delta_onehot, dim=-2).unsqueeze(-1)
@@ -416,39 +381,15 @@ class CSGA(nn.Module):
 
         # 慢速
         attn = (q @ c_k.transpose(-2, -1))                                  # [batch_size, num_heads, L, L']
-        if not relative_position_bias is None:
-            attn = attn + relative_position_bias
         attn = self.softmax(attn)
-        # attn = self.attn_drop(attn)
+        attn = self.attn_drop(attn)
         x = (attn @ c_v).transpose(1, 2).reshape(batch_size, L, C)
-
-        # # 使用Flash-Attention 1.x的API
-        # q = q.transpose(1, 2).reshape(batch_size*L, self.num_heads, C // self.num_heads).half()
-        # c_k = c_k.transpose(1, 2).reshape(batch_size*L_, self.num_heads, C // self.num_heads).half()
-        # c_v = c_v.transpose(1, 2).reshape(batch_size*L_, self.num_heads, C // self.num_heads).half()
-        # cu_seqlens_q = torch.arange(0, (batch_size + 1) * L, step=L, dtype=torch.int32, device=q.device)
-        # cu_seqlens_kv = torch.arange(0, (batch_size + 1) * L_, step=L_, dtype=torch.int32, device=q.device)
-        # x = flash_attn_unpadded_func(
-        #     q, c_k, c_v, 
-        #     cu_seqlens_q=cu_seqlens_q, cu_seqlens_k=cu_seqlens_kv, 
-        #     max_seqlen_q=L, max_seqlen_k=L_, 
-        #     dropout_p=self.attn_drop_rate if self.training else 0.0, 
-        #     softmax_scale=1.0
-        # ).reshape(batch_size, L, C).float()
-
-        # # 使用Flash-Attention 2.x的API
-        # q = q.transpose(1, 2).half()       # [batch_size, L, num_heads, head_embed_dims]
-        # c_k = c_k.transpose(1, 2).half()   # [batch_size, L_, num_heads, head_embed_dims]
-        # c_v = c_v.transpose(1, 2).half()   # [batch_size, L_, num_heads, head_embed_dims]
-        # x = flash_attn_func(q, c_k, c_v, dropout_p=self.attn_drop_rate if self.training else 0.0, softmax_scale=1.0)  # [batch_size, L, num_heads, head_embed_dims]
-        # x = x.reshape(batch_size, L, C).float()
 
         x = self.proj(x)
         x = self.proj_drop(x)
 
         x = self.out_drop(x)
 
-        # return x, delta_onehot_x, error_quantization, affinity, scale
         return x, delta_onehot_x
 
 
@@ -705,7 +646,6 @@ class TransformerEncoderLayer(BaseModule):
 
         return x, delta_onehot_x_dst
 
-
 @MODELS.register_module()
 class MixVisionTransformerMod(BaseModule):
     """The backbone of Segformer.
@@ -890,7 +830,7 @@ class MixVisionTransformerMod(BaseModule):
 
         for i, layer in enumerate(self.layers):
             x, hw_shape = layer[0](x)               # PatchEmbed, x: (B, out_h * out_w, embed_dims), hw_shape: (out_h, out_w)
-            if i == 0:  # 获取初始聚类索引值, [B, S, H_x, W_x], 由于分类任务的初始特征图尺寸较小, 224*224的图片第一次emded之后的尺寸为56*56，为了保证聚类中心接近16*16，stride取(4, 4)
+            if i == 0:
                 delta_onehot_x = self.initIndex(hw_shape, stride=(16, 16), device=x.device).repeat(x.shape[0], 1, 1, 1)
             else:       # 聚类集合随着特征图的下采样而下采样
                 if self.strides[i] > 1:

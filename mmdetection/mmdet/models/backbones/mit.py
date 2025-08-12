@@ -11,7 +11,6 @@ from mmcv.cnn.bricks.transformer import MultiheadAttention, PatchEmbed
 from mmengine.model import BaseModule, ModuleList, Sequential
 from mmengine.model.weight_init import (constant_init, normal_init, trunc_normal_init)
 
-# from mmseg.registry import MODELS
 from mmdet.registry import MODELS
 
 def nlc_to_nchw(x, hw_shape):

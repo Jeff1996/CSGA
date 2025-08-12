@@ -5,8 +5,8 @@ _base_ = [
     '../_base_/default_runtime.py'
 ]
 
-# 数据集配置（单卡）
-data_root = '../00_datasets/coco/2017/'
+# data setting
+data_root = 'path/to/coco/'
 num_gpus = 2
 batch_size_pergpu = 4
 
@@ -18,7 +18,7 @@ train_dataloader = dict(
     )
 )
 val_dataloader = dict(
-    batch_size=batch_size_pergpu//2, 
+    batch_size=batch_size_pergpu, 
     num_workers=4, 
     dataset=dict(
         data_root=data_root,
@@ -32,12 +32,12 @@ val_evaluator = dict(
 test_evaluator = val_evaluator
 
 
-# 模型配置
-checkpoint = '/home/hjf/workspace/mmdetection/work_dirs/pretrained_in1k/05pvt/epoch_50.pth'
+# model setting
+checkpoint = 'path/to/ImageNet-1K/pre-trained/weight.pth'
 model = dict(
     type='RetinaNet',
     backbone=dict(
-        _delete_=True,                          # 将 _base_ 中关于 backbone 的字段删除
+        _delete_=True,
         type='pvt_tiny',
         img_size=224,
         patch_size=4, 
@@ -45,7 +45,7 @@ model = dict(
         num_heads=[1, 2, 4, 8],
         out_indices=(0, 1, 2, 3),
         qk_scale=None,
-        with_cp=True,
+        with_cp=False,
     ),
     neck=dict(
         in_channels=[64, 128, 256, 512]
@@ -54,13 +54,13 @@ model = dict(
         dict(type='Pretrained', checkpoint=checkpoint)
     ],
 )
-# optimizer
+
+# optimization setting
 optim_wrapper = dict(
     optimizer=dict(
         _delete_=True, 
         type='AdamW', 
         lr=0.0001 * num_gpus * batch_size_pergpu / 16,
-                                                # 对应batch size = 16
         weight_decay=0.0001
     )
 )
@@ -71,10 +71,5 @@ train_cfg = dict(
 )
 
 default_hooks = dict(
-    # 每隔interval个epoch保存一次权重
     checkpoint=dict(type='CheckpointHook', interval=1)
 )
-
-custom_hooks = [
-    dict(type='EmptyCacheHook', priority='HIGHEST'),  # 优先级设为最高确保执行
-]

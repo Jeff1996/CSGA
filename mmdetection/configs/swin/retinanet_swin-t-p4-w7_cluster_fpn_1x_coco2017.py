@@ -8,18 +8,18 @@ _base_ = [
 # data setting
 data_root = 'path/to/coco/'
 num_gpus = 2
-batch_size_pergpu = 4
+batch_size_pergpu = 2
 
 train_dataloader = dict(
     batch_size=batch_size_pergpu,
-    num_workers=4,
+    num_workers=8,
     dataset=dict(
         data_root=data_root,
     )
 )
 val_dataloader = dict(
     batch_size=batch_size_pergpu, 
-    num_workers=4, 
+    num_workers=8, 
     dataset=dict(
         data_root=data_root,
     )
@@ -31,36 +31,30 @@ val_evaluator = dict(
 )
 test_evaluator = val_evaluator
 
-
 # model setting
 checkpoint = 'path/to/ImageNet-1K/pre-trained/weight.pth'
 model = dict(
     backbone=dict(
         _delete_=True,
-        type='SVTMod',
-        in_channels=3,
-        embed_dims=[64, 128, 256, 512],
-        num_heads=[2, 4, 8, 16],
-        patch_sizes=[4, 2, 2, 2],
-        strides=[4, 2, 2, 2],
-        mlp_ratios=[4, 4, 4, 4],
-        windiow_sizes=[7, 7, 7, 7],
-        out_indices=(1, 2, 3),
-        qkv_bias=True,
-        norm_cfg=dict(type='LN'),
-        depths=[2, 2, 10, 4],
-        sr_ratios=[8, 4, 2, 1],
-        norm_after_stage=True,
-        drop_rate=0.0,
-        attn_drop_rate=0.,
+        type='SwinTransformerCluster',
+        embed_dims=96,
+        depths=[2, 2, 6, 2],
+        num_heads=[3, 6, 12, 24],
+        window_size=7,
+        use_abs_pos_embed=False,
         drop_path_rate=0.2,
-
-        qk_scale=15.0,
-        attn_type='csga',
+        patch_norm=True, 
+        out_indices=(1, 2, 3),
+        # Please only add indices that would be used
+        # in FPN, otherwise some parameter will not be used
         with_cp=False,
+        # init_cfg=dict(
+        #     type='Pretrained', 
+        #     checkpoint=pretrained
+        # )
     ),
     neck=dict(
-        in_channels=[128, 256, 512],
+        in_channels=[192, 384, 768], 
         start_level=0, 
         num_outs=5
     ),
@@ -71,9 +65,21 @@ model = dict(
 
 # optimization setting
 optim_wrapper = dict(
+    _delete_=True,
+    type='OptimWrapper',
     optimizer=dict(
-        lr=0.01 * num_gpus * batch_size_pergpu / 16,
-    )
+        type='AdamW', 
+        lr=0.00003,
+        betas=(0.9, 0.999), 
+        weight_decay=0.01
+    ),
+    paramwise_cfg=dict(
+        custom_keys={
+            'absolute_pos_embed': dict(decay_mult=0.),
+            'relative_position_bias_table': dict(decay_mult=0.),
+            'norm': dict(decay_mult=0.),
+        }
+    ),
 )
 
 # train, val, test setting
