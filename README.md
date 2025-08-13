@@ -1,5 +1,4 @@
-# CSGA
-The implementation code of the paper "Enhancing Local Attention with Global Information Interaction via Progressive Cluster Propagation".
+# CSGA: Enhancing Local Attention with Global Information Interaction via Progressive Cluster Propagation
 
 <img src="./images/Graphical_abstract.png" alt="Graphical abstract" width="800">
 
